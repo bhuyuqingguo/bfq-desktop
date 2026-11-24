@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BFQ 封装工具</title>
+  </head>
+  <body>
+    <header class="utility-bar">
+      <div class="brand">
+        <svg viewBox="0 0 28 28" aria-hidden="true"><path d="M4 4h20v20H4zM4 10h20M10 10v14" /></svg>
+        <strong>BFQ 封装工具</strong>
+      </div>
+      <span class="format-note">ARGON2ID · AES-256-GCM</span>
+      <span class="version">DESKTOP / 0.1</span>
+    </header>
+
+    <nav class="mode-tabs" aria-label="操作模式">
+      <button data-mode="pack" class="active" aria-selected="true">文件封装</button>
+      <button data-mode="unpack" aria-selected="false">BFQ 拆包</button>
+      <button data-mode="migrate" aria-selected="false">EN3 迁移</button>
+      <button data-mode="recover" aria-selected="false">EN3 恢复</button>
+    </nav>
+
+    <main>
+      <section class="file-column" aria-labelledby="file-heading">
+        <div class="section-heading">
+          <span>01</span>
+          <h1 id="file-heading">选择要封装的文件</h1>
+        </div>
+
+        <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="选择或拖入文件">
+          <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M9 7h22l8 8v26H9zM31 7v9h8M17 30l7 7 7-7M24 20v17" /></svg>
+          <p id="drop-title">把文件拖到这里</p>
+          <p id="drop-subtitle">单个文件，内容将流式处理</p>
+          <button id="choose-input" class="text-button" type="button">浏览文件</button>
+        </div>
+
+        <div class="path-block">
+          <div class="path-label"><span>输入</span><span id="input-state">未选择</span></div>
+          <div id="input-path" class="path-value empty">—</div>
+        </div>
+        <div class="path-block">
+          <div class="path-label"><span>输出</span><button id="choose-output" type="button">更改位置</button></div>
+          <div id="output-path" class="path-value empty">自动生成 .bfq 文件</div>
+        </div>
+
+        <div class="format-explainer">
+          <strong id="format-title">新格式 BFQ</strong>
+          <p id="format-description">文件名和内容均加密。每次封装使用新的随机盐，不记录口令。</p>
+        </div>
+      </section>
+
+      <section class="operation-column" aria-labelledby="operation-heading">
+        <div class="section-heading">
+          <span>02</span>
+          <h2 id="operation-heading">设置口令并执行</h2>
+        </div>
+
+        <div class="password-area">
+          <label for="password" id="password-label">封装口令</label>
+          <div class="password-input">
+            <input id="password" type="password" autocomplete="off" spellcheck="false" />
+            <button id="toggle-password" type="button" aria-label="显示或隐藏口令">显示</button>
+          </div>
+
+          <div id="new-password-group" hidden>
+            <label for="new-password">新 BFQ 口令</label>
+            <div class="password-input">
+              <input id="new-password" type="password" autocomplete="off" spellcheck="false" />
+              <button id="toggle-new-password" type="button" aria-label="显示或隐藏新口令">显示</button>
+            </div>
+          </div>
+
+          <div id="confirm-group">
+            <label for="confirm-password">再次输入口令</label>
+            <input id="confirm-password" type="password" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="password-tools">
+            <button id="generate-password" class="text-button" type="button">生成随机口令</button>
+            <span>口令只用于本次操作</span>
+          </div>
+        </div>
+
+        <div class="action-area">
+          <button id="execute" class="execute-button" type="button" disabled>开始封装</button>
+          <p id="validation-message" class="validation-message">请选择输入文件并填写口令</p>
+        </div>
+
+        <div id="progress-area" class="progress-area" hidden>
+          <div class="progress-copy"><span id="progress-status">正在处理</span><strong id="progress-percent">0%</strong></div>
+          <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div>
+          <button id="cancel" class="cancel-button" type="button">取消任务</button>
+        </div>
+
+        <div id="result" class="result" aria-live="polite">
+          <span class="result-mark">—</span>
+          <p>输出文件已存在时会停止，不会覆盖原文件。</p>
+        </div>
+      </section>
+    </main>
+
+    <footer><span>RUST CORE / TAURI 2</span><span>旧 EN3 仅读取与迁移，不再生成</span></footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

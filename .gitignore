@@ -1,0 +1,21 @@
+# Rust build outputs
+/target/
+/desktop/src-tauri/target/
+
+# Frontend dependencies and build outputs
+/desktop/node_modules/
+/desktop/dist/
+
+# Locally packaged binaries
+/dist/
+
+# Generated Tauri schemas
+/desktop/src-tauri/gen/schemas/
+
+# Local verification data and outputs
+/verification/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,22 @@
+[package]
+name = "en3-recovery"
+version = "0.1.0"
+edition = "2024"
+description = "Legacy EN3 recovery and modern BFQ encrypted archive tool"
+license = "MIT"
+
+[dependencies]
+aes-gcm = "0.11.1"
+argon2 = "0.6.0"
+encoding_rs = "0.8.44"
+getrandom = "0.4.3"
+sm3 = { version = "0.5.0", default-features = false }
+sm4 = "0.6.0"
+zeroize = "1.9.2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"

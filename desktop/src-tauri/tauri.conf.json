@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BFQ 封装工具",
+  "version": "0.1.0",
+  "identifier": "com.bfq.recovery",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "BFQ 封装工具",
+        "width": 920,
+        "height": 680,
+        "minWidth": 720,
+        "minHeight": 560,
+        "resizable": true,
+        "center": true,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "app"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Utility",
+    "shortDescription": "Lightweight BFQ encryption and EN3 recovery tool",
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
+  }
+}

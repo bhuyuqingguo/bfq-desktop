@@ -1,0 +1,180 @@
+use en3_recovery::modern::{decrypt_file_monitored, encrypt_file_monitored, migrate_en3_monitored};
+use en3_recovery::recover_file_monitored;
+use serde::{Deserialize, Serialize};
+use std::io;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+use tauri::{Emitter, WebviewWindow};
+
+#[derive(Default)]
+struct AppState {
+    running: Arc<AtomicBool>,
+    cancelled: Arc<AtomicBool>,
+}
+
+struct RunningGuard(Arc<AtomicBool>);
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OperationRequest {
+    operation: String,
+    input: String,
+    password: String,
+    new_password: Option<String>,
+    output: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OperationResult {
+    filename: String,
+    original_size: u64,
+    output: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProgressPayload {
+    processed: u64,
+    total: u64,
+    percent: u8,
+}
+
+fn begin(state: &AppState) -> Result<RunningGuard, String> {
+    state
+        .running
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .map_err(|_| "已有任务正在执行".to_string())?;
+    state.cancelled.store(false, Ordering::Release);
+    Ok(RunningGuard(Arc::clone(&state.running)))
+}
+
+fn output_path(output: Option<&str>) -> Option<PathBuf> {
+    output.filter(|value| !value.is_empty()).map(PathBuf::from)
+}
+
+fn map_error(error: impl std::fmt::Display) -> String {
+    let message = error.to_string();
+    if message.contains("Operation cancelled") {
+        "操作已取消，未生成输出文件".to_string()
+    } else {
+        message
+    }
+}
+
+#[tauri::command]
+async fn execute_operation(
+    window: WebviewWindow,
+    state: tauri::State<'_, AppState>,
+    request: OperationRequest,
+) -> Result<OperationResult, String> {
+    let input = PathBuf::from(&request.input);
+    let total = input.metadata().map_err(map_error)?.len();
+    let guard = begin(&state)?;
+    let cancelled = Arc::clone(&state.cancelled);
+    let output = output_path(request.output.as_deref());
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let mut last_emit = Instant::now() - Duration::from_millis(100);
+        let mut last_percent = u8::MAX;
+        let progress = move |processed: u64| {
+            if cancelled.load(Ordering::Acquire) {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "Operation cancelled",
+                ));
+            }
+            let percent = processed
+                .saturating_mul(100)
+                .checked_div(total)
+                .unwrap_or(100)
+                .min(100) as u8;
+            if percent != last_percent
+                && (processed == total || last_emit.elapsed() >= Duration::from_millis(60))
+            {
+                let _ = window.emit(
+                    "operation-progress",
+                    ProgressPayload {
+                        processed,
+                        total,
+                        percent,
+                    },
+                );
+                last_emit = Instant::now();
+                last_percent = percent;
+            }
+            Ok(())
+        };
+
+        let result = match request.operation.as_str() {
+            "pack" => {
+                encrypt_file_monitored(&input, &request.password, output.as_deref(), progress)
+            }
+            "unpack" => {
+                decrypt_file_monitored(&input, &request.password, output.as_deref(), progress)
+            }
+            "recover" => {
+                recover_file_monitored(&input, &request.password, output.as_deref(), progress).map(
+                    |info| en3_recovery::modern::FileInfo {
+                        filename: info.filename,
+                        original_size: info.original_size,
+                        output: info.output,
+                    },
+                )
+            }
+            "migrate" => {
+                let new_password = request
+                    .new_password
+                    .as_deref()
+                    .ok_or_else(|| "缺少新口令".to_string())?;
+                migrate_en3_monitored(
+                    &input,
+                    &request.password,
+                    new_password,
+                    output.as_deref(),
+                    progress,
+                )
+            }
+            _ => {
+                return Err("不支持的操作".to_string());
+            }
+        }
+        .map_err(map_error)?;
+        Ok(OperationResult {
+            filename: result.filename,
+            original_size: result.original_size,
+            output: result.output.to_string_lossy().into_owned(),
+        })
+    })
+    .await
+    .map_err(|error| format!("任务执行失败：{error}"))?
+}
+
+#[tauri::command]
+fn cancel_operation(state: tauri::State<'_, AppState>) {
+    if state.running.load(Ordering::Acquire) {
+        state.cancelled.store(true, Ordering::Release);
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .manage(AppState::default())
+        .invoke_handler(tauri::generate_handler![
+            execute_operation,
+            cancel_operation
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running BFQ desktop application");
+}
