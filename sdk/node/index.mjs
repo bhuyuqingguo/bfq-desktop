@@ -13,8 +13,8 @@ export class BafenCore {
     this.executable = executable;
   }
 
-  async execute({ operation, input, password, newPassword = null, output = null }, { onProgress, signal } = {}) {
-    if (!["pack", "unpack", "migrate", "recover"].includes(operation)) throw new BafenError("不支持的操作");
+  async execute({ operation, input, password, newPassword = null, output = null, compress = false, renameExisting = false }, { onProgress, signal } = {}) {
+    if (!["pack", "unpack", "verify", "migrate", "recover"].includes(operation)) throw new BafenError("不支持的操作");
     const temporary = await mkdtemp(join(tmpdir(), "guanhai-bafen-"));
     const cancelFile = join(temporary, "cancel.requested");
     const cancel = () => void writeFile(cancelFile, "cancelled").catch(() => {});
@@ -32,7 +32,7 @@ export class BafenCore {
       let stderr = "";
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", (chunk) => { stderr += chunk; });
-      child.stdin.end(JSON.stringify({ operation, input: resolve(input), password, newPassword, output: output ? resolve(output) : null }) + "\n");
+      child.stdin.end(JSON.stringify({ operation, input: resolve(input), password, newPassword, output: output ? resolve(output) : null, compress, renameExisting }) + "\n");
       let result = null;
       let errorMessage = null;
       const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
@@ -58,8 +58,9 @@ export class BafenCore {
     }
   }
 
-  pack(input, password, output = null, options = {}) { return this.execute({ operation: "pack", input, password, output }, options); }
-  unpack(input, password, output = null, options = {}) { return this.execute({ operation: "unpack", input, password, output }, options); }
-  migrate(input, password, newPassword, output = null, options = {}) { return this.execute({ operation: "migrate", input, password, newPassword, output }, options); }
+  pack(input, password, output = null, options = {}) { return this.execute({ operation: "pack", input, password, output, compress: options.compress, renameExisting: options.renameExisting }, options); }
+  unpack(input, password, output = null, options = {}) { return this.execute({ operation: "unpack", input, password, output, renameExisting: options.renameExisting }, options); }
+  verify(input, password, options = {}) { return this.execute({ operation: "verify", input, password }, options); }
+  migrate(input, password, newPassword, output = null, options = {}) { return this.execute({ operation: "migrate", input, password, newPassword, output, renameExisting: options.renameExisting }, options); }
   recover(input, password, output = null, options = {}) { return this.execute({ operation: "recover", input, password, output }, options); }
 }

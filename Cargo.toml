@@ -1,6 +1,6 @@
 [package]
 name = "en3-recovery"
-version = "0.3.0"
+version = "0.0.1"
 edition = "2024"
 description = "Shared local core for Guanhai Bafen and legacy EN3 recovery"
 license = "MIT"
@@ -14,7 +14,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sm3 = { version = "0.5.0", default-features = false }
 sm4 = "0.6.0"
+tempfile = "3"
+walkdir = "2"
 zeroize = "1.9.2"
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
 
 [profile.release]
 opt-level = "z"

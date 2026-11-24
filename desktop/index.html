@@ -50,11 +50,14 @@
           <button data-mode="unpack" aria-selected="false">
             <span class="nav-index">02</span><span class="nav-copy"><strong>BFQ 拆包</strong><small>UNPACK</small></span>
           </button>
+          <button data-mode="verify" aria-selected="false">
+            <span class="nav-index">03</span><span class="nav-copy"><strong>BFQ 校验</strong><small>VERIFY</small></span>
+          </button>
           <button data-mode="migrate" aria-selected="false">
-            <span class="nav-index">03</span><span class="nav-copy"><strong>EN3 迁移</strong><small>MIGRATE</small></span>
+            <span class="nav-index">04</span><span class="nav-copy"><strong>EN3 迁移</strong><small>MIGRATE</small></span>
           </button>
           <button data-mode="recover" aria-selected="false">
-            <span class="nav-index">04</span><span class="nav-copy"><strong>EN3 恢复</strong><small>RECOVER</small></span>
+            <span class="nav-index">05</span><span class="nav-copy"><strong>EN3 恢复</strong><small>RECOVER</small></span>
           </button>
         </nav>
 
@@ -101,7 +104,7 @@
             <div class="section-heading">
               <div class="section-kicker"><span>01</span> SOURCE / 文件</div>
               <h1 id="file-heading">选择要封装的文件</h1>
-              <p>一次处理一个文件，原文件始终保持不变。</p>
+              <p>支持多选与文件夹，原文件始终保持不变。</p>
             </div>
 
             <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="选择或拖入文件">
@@ -112,14 +115,14 @@
               </svg>
               <p id="drop-title">把文件拖到这里</p>
               <p id="drop-subtitle">任意文件，内容将流式处理</p>
-              <button id="choose-input" class="text-button" type="button">浏览文件 <span>↗</span></button>
+              <div class="input-buttons"><button id="choose-input" class="text-button" type="button">浏览文件 <span>↗</span></button><button id="choose-folder" class="text-button" type="button">选择文件夹 <span>↗</span></button></div>
             </div>
 
             <div class="path-block">
               <div class="path-label"><span>输入文件</span><span id="input-state">未选择</span></div>
               <div id="input-path" class="path-value empty">尚未选择文件</div>
             </div>
-            <div class="path-block">
+            <div id="output-block" class="path-block">
               <div class="path-label"><span>保存到</span><button id="choose-output" type="button">更改位置 ↗</button></div>
               <div id="output-path" class="path-value empty">自动生成 .bfq 文件</div>
             </div>
@@ -156,12 +159,13 @@
                 <label for="confirm-password">再次输入口令</label>
                 <input id="confirm-password" type="password" autocomplete="off" spellcheck="false" placeholder="再次输入以确认" />
               </div>
+              <div id="strength-meter" class="strength-meter"><div><span>口令强度</span><strong id="strength-label">等待输入</strong></div><div class="strength-track"><i id="strength-fill"></i></div><small>建议使用 14 位以上、包含不同字符的口令</small></div>
               <div class="password-tools">
                 <button id="generate-password" class="text-button" type="button">生成随机口令</button>
-                <span>不保存 · 不上传</span>
+                <span>不保存 · 不上传 · 完成后清空</span>
               </div>
             </div>
-
+            <div class="pack-options"><span id="pack-options"><label><input id="compress" type="checkbox" /> 封装前压缩</label></span><label><input id="rename-existing" type="checkbox" /> 重名时自动改名</label></div>
             <div class="action-area">
               <button id="execute" class="execute-button" type="button" disabled>开始封装</button>
               <p id="validation-message" class="validation-message">请选择输入文件并填写口令</p>
@@ -180,7 +184,7 @@
           </section>
         </main>
 
-        <footer><span>GUANHAI / LOCAL FIRST</span><span>EN3 仅读取与迁移，不再生成</span></footer>
+        <footer><span>GUANHAI / LOCAL FIRST</span><span>版本 0.0.1 · EN3 仅读取与迁移</span></footer>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

@@ -3,6 +3,7 @@
 //! This module exists only for recovery and migration. It deliberately does not
 //! implement EN3 creation: the legacy format lacks modern authenticated encryption.
 
+pub mod bundle;
 pub mod modern;
 
 use encoding_rs::GB18030;
@@ -56,6 +57,18 @@ impl Error for En3Error {
 impl From<io::Error> for En3Error {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
+    }
+}
+
+impl From<zip::result::ZipError> for En3Error {
+    fn from(error: zip::result::ZipError) -> Self {
+        Self::Format(format!("Invalid or unsupported archive: {error}"))
+    }
+}
+
+impl From<walkdir::Error> for En3Error {
+    fn from(error: walkdir::Error) -> Self {
+        Self::Format(format!("Unable to read input folder: {error}"))
     }
 }
 

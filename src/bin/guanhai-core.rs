@@ -1,16 +1,17 @@
-use en3_recovery::modern::{
-    FileInfo, decrypt_file_monitored, encrypt_file_monitored, migrate_en3_monitored,
-};
+use en3_recovery::bundle::{decrypt_path_monitored, encrypt_prepared_monitored, prepare_input};
+use en3_recovery::modern::{FileInfo, choose_output, migrate_en3_monitored, verify_file_monitored};
 use en3_recovery::recover_file_monitored;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::env;
-use std::error::Error;
-use std::ffi::OsString;
-use std::io::{self, Read, Write};
-use std::path::PathBuf;
-use std::process::ExitCode;
-use std::time::{Duration, Instant};
+use std::{
+    env,
+    error::Error,
+    ffi::OsString,
+    io::{self, Read, Write},
+    path::PathBuf,
+    process::ExitCode,
+    time::{Duration, Instant},
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -20,17 +21,20 @@ struct Request {
     password: String,
     new_password: Option<String>,
     output: Option<PathBuf>,
+    #[serde(default)]
+    compress: bool,
+    #[serde(default)]
+    rename_existing: bool,
 }
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum Operation {
     Pack,
     Unpack,
+    Verify,
     Migrate,
     Recover,
 }
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct OperationResult {
@@ -38,7 +42,6 @@ struct OperationResult {
     original_size: u64,
     output: String,
 }
-
 impl From<FileInfo> for OperationResult {
     fn from(info: FileInfo) -> Self {
         Self {
@@ -48,35 +51,50 @@ impl From<FileInfo> for OperationResult {
         }
     }
 }
-
 fn write_event(output: &mut impl Write, event: Value) -> io::Result<()> {
     serde_json::to_writer(&mut *output, &event)?;
     output.write_all(b"\n")?;
     output.flush()
 }
-
 fn execute(
     request: &Request,
+    prepared: Option<en3_recovery::bundle::PreparedInput>,
     progress: impl FnMut(u64) -> io::Result<()>,
 ) -> en3_recovery::Result<FileInfo> {
     let output = request.output.as_deref();
     match request.operation {
-        Operation::Pack => {
-            encrypt_file_monitored(&request.input, &request.password, output, progress)
-        }
-        Operation::Unpack => {
-            decrypt_file_monitored(&request.input, &request.password, output, progress)
-        }
+        Operation::Pack => encrypt_prepared_monitored(
+            prepared
+                .ok_or_else(|| en3_recovery::En3Error::Format("Missing prepared input".into()))?,
+            &request.input,
+            &request.password,
+            output,
+            request.rename_existing,
+            progress,
+        ),
+        Operation::Unpack => decrypt_path_monitored(
+            &request.input,
+            &request.password,
+            output,
+            request.rename_existing,
+            progress,
+        ),
+        Operation::Verify => verify_file_monitored(&request.input, &request.password, progress),
         Operation::Migrate => {
             let new_password = request
                 .new_password
                 .as_deref()
                 .ok_or_else(|| en3_recovery::En3Error::Format("缺少新口令".into()))?;
+            let requested = request
+                .output
+                .clone()
+                .unwrap_or_else(|| request.input.with_extension("bfq"));
+            let destination = choose_output(&requested, request.rename_existing)?;
             migrate_en3_monitored(
                 &request.input,
                 &request.password,
                 new_password,
-                output,
+                Some(&destination),
                 progress,
             )
         }
@@ -91,7 +109,6 @@ fn execute(
         }
     }
 }
-
 fn friendly_error(message: &str) -> String {
     if message.contains("Operation cancelled") {
         "操作已取消，未生成输出文件".into()
@@ -105,7 +122,6 @@ fn friendly_error(message: &str) -> String {
         message.to_string()
     }
 }
-
 fn parse_cancel_file(arguments: &[OsString]) -> Result<Option<PathBuf>, Box<dyn Error>> {
     match arguments {
         [] => Ok(None),
@@ -113,16 +129,21 @@ fn parse_cancel_file(arguments: &[OsString]) -> Result<Option<PathBuf>, Box<dyn 
         _ => Err("用法：guanhai-core request [--cancel-file <路径>]".into()),
     }
 }
-
 fn run(cancel_file: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
-    let mut input = io::stdin().lock();
     let mut request_bytes = Vec::new();
-    input.read_to_end(&mut request_bytes)?;
+    io::stdin().lock().read_to_end(&mut request_bytes)?;
     let request: Request = serde_json::from_slice(&request_bytes)?;
-    let total = request.input.metadata()?.len();
+    let prepared = if matches!(request.operation, Operation::Pack) {
+        Some(prepare_input(&request.input, request.compress)?)
+    } else {
+        None
+    };
+    let total = prepared.as_ref().map_or_else(
+        || request.input.metadata().map(|m| m.len()).unwrap_or(0),
+        |p| p.stream_size(),
+    );
     let mut output = io::stdout().lock();
-    write_event(&mut output, json!({ "type": "started", "total": total }))?;
-
+    write_event(&mut output, json!({"type":"started","total":total}))?;
     let mut last_emit = Instant::now() - Duration::from_millis(100);
     let mut last_percent = u8::MAX;
     let progress = |processed: u64| {
@@ -142,47 +163,32 @@ fn run(cancel_file: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         {
             write_event(
                 &mut output,
-                json!({
-                    "type": "progress",
-                    "processed": processed,
-                    "total": total,
-                    "percent": percent,
-                }),
+                json!({"type":"progress","processed":processed,"total":total,"percent":percent}),
             )?;
             last_emit = Instant::now();
             last_percent = percent;
         }
         Ok(())
     };
-
-    let result = OperationResult::from(execute(&request, progress)?);
+    let result = OperationResult::from(execute(&request, prepared, progress)?);
     write_event(
         &mut output,
-        json!({
-            "type": "result",
-            "filename": result.filename,
-            "originalSize": result.original_size,
-            "output": result.output,
-        }),
+        json!({"type":"result","filename":result.filename,"originalSize":result.original_size,"output":result.output}),
     )?;
     Ok(())
 }
-
 fn print_usage() {
-    println!("观海·八分共享核心");
-    println!();
-    println!("用法：guanhai-core request [--cancel-file <路径>]");
-    println!("从标准输入读取一个 JSON 操作请求，逐行输出 JSON 进度和结果。");
-    println!("口令只通过标准输入传递，不写入命令行或日志。");
+    println!(
+        "观海·八分共享核心\n\n用法：guanhai-core request [--cancel-file <路径>]\n从标准输入读取一个 JSON 操作请求，逐行输出 JSON 进度和结果。\n口令只通过标准输入传递，不写入命令行或日志。"
+    );
 }
-
 fn main() -> ExitCode {
     let arguments: Vec<OsString> = env::args_os().skip(1).collect();
     if arguments.len() == 1 && (arguments[0] == "--help" || arguments[0] == "-h") {
         print_usage();
         return ExitCode::SUCCESS;
     }
-    let result = if arguments.first().is_some_and(|value| value == "request") {
+    let result = if arguments.first().is_some_and(|v| v == "request") {
         parse_cancel_file(&arguments[1..]).and_then(run)
     } else {
         Err("用法：guanhai-core request [--cancel-file <路径>]".into())
@@ -190,10 +196,9 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            let message = friendly_error(&error.to_string());
             let _ = write_event(
                 &mut io::stdout().lock(),
-                json!({ "type": "error", "message": message }),
+                json!({"type":"error","message":friendly_error(&error.to_string())}),
             );
             ExitCode::FAILURE
         }

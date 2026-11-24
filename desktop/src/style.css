@@ -236,6 +236,18 @@ main { flex: 1 1 auto; display: grid; grid-template-columns: minmax(0, 1.34fr) m
 .result.success .result-mark { color: #fff; background: var(--sea); animation: result-stamp .48s var(--ease-out); }
 .result.error p { color: var(--seal); }
 
+.input-buttons { display: flex; gap: 18px; }
+.strength-meter { margin-top: 14px; }
+.strength-meter > div:first-child { display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; }
+.strength-track { height: 4px; margin: 7px 0; overflow: hidden; border-radius: 9px; background: var(--line); }
+.strength-track i { display: block; width: 0; height: 100%; transition: width .2s; }
+.strength-meter small { color: var(--muted); font-size: 9px; }
+.pack-options { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 16px; color: var(--muted); font-size: 10px; }
+.pack-options label { display: flex; align-items: center; gap: 6px; }
+.pack-options input { accent-color: var(--seal); }
+.result { flex-wrap: wrap; max-height: 170px; overflow-y: auto; }
+.result p { flex: 1; }
+.result ul { flex-basis: 100%; margin: 0 0 0 31px; padding: 0; color: var(--muted); font: 9px/1.65 var(--mono); list-style: none; overflow-wrap: anywhere; }
 footer { flex: 0 0 34px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 27px; border-top: 1px solid var(--line); color: var(--muted); font: 8px var(--mono); letter-spacing: .04em; }
 
 .splash { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; overflow: hidden; color: var(--on-sea); background: var(--sea); transition: background-color .8s var(--ease-out); }

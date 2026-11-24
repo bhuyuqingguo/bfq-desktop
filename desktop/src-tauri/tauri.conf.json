@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "观海·八分",
-  "version": "0.3.0",
+  "version": "0.0.1",
   "identifier": "com.guanhai.bafen",
   "build": {
     "beforeDevCommand": "npm run dev",

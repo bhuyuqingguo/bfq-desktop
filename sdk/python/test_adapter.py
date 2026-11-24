@@ -37,15 +37,26 @@ class PythonAdapterTests(unittest.TestCase):
             self.core.unpack(archive, "wrong-password", self.root / "wrong.wav")
         self.assertFalse((self.root / "wrong.wav").exists())
 
+    def test_folder_compression_verify_and_rename(self):
+        folder = self.root / "资料目录"
+        folder.mkdir()
+        (folder / "内容.txt").write_text("folder roundtrip", encoding="utf-8")
+        archive = self.root / "目录.bfq"
+        self.core.pack(folder, "password", archive, compress=True)
+        checked = self.core.verify(archive, "password")
+        self.assertEqual(checked.filename, "资料目录.zip")
+        restored = self.core.unpack(archive, "password", self.root / "恢复目录")
+        self.assertEqual((restored.output / "内容.txt").read_text(encoding="utf-8"), "folder roundtrip")
+        renamed = self.core.unpack(archive, "password", self.root / "恢复目录", rename_existing=True)
+        self.assertEqual(renamed.output, self.root / "恢复目录-1")
+
     def test_cancel_leaves_no_output(self):
         cancelled = threading.Event()
         archive = self.root / "cancelled.bfq"
 
-        def cancel_at_start(_processed, _total, _percent):
-            cancelled.set()
-
+        cancelled.set()
         with self.assertRaisesRegex(BafenError, "取消"):
-            self.core.pack(self.source, "password", archive, on_progress=cancel_at_start, cancel_event=cancelled)
+            self.core.pack(self.source, "password", archive, cancel_event=cancelled)
         self.assertFalse(archive.exists())
 
 

@@ -41,8 +41,10 @@ class BafenCore:
         new_password: str | None = None,
         on_progress: ProgressCallback | None = None,
         cancel_event: threading.Event | None = None,
+        compress: bool = False,
+        rename_existing: bool = False,
     ) -> BafenResult:
-        if operation not in {"pack", "unpack", "migrate", "recover"}:
+        if operation not in {"pack", "unpack", "verify", "migrate", "recover"}:
             raise ValueError("不支持的操作")
         if self.executable.parent != Path(".") and not self.executable.is_file():
             raise BafenError(f"未找到观海·八分核心程序：{self.executable}")
@@ -52,9 +54,13 @@ class BafenCore:
             "password": password,
             "newPassword": new_password,
             "output": str(Path(output).resolve()) if output else None,
+            "compress": compress,
+            "renameExisting": rename_existing,
         }
         with tempfile.TemporaryDirectory(prefix="guanhai-bafen-") as temporary:
             cancel_path = Path(temporary) / "cancel.requested"
+            if cancel_event and cancel_event.is_set():
+                cancel_path.touch()
             command = [str(self.executable), "request", "--cancel-file", str(cancel_path)]
             try:
                 process = subprocess.Popen(
@@ -130,6 +136,9 @@ class BafenCore:
 
     def unpack(self, input: str | Path, password: str, output: str | Path | None = None, **kwargs) -> BafenResult:
         return self.execute("unpack", input, password, output=output, **kwargs)
+
+    def verify(self, input: str | Path, password: str, **kwargs) -> BafenResult:
+        return self.execute("verify", input, password, **kwargs)
 
     def migrate(self, input: str | Path, old_password: str, new_password: str, output: str | Path | None = None, **kwargs) -> BafenResult:
         return self.execute("migrate", input, old_password, output=output, new_password=new_password, **kwargs)

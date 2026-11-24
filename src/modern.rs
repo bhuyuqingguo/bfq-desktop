@@ -447,6 +447,57 @@ pub fn decrypt<R: Read, W: Write>(reader: R, writer: &mut W, password: &str) -> 
     ModernDecoder::new(reader, password)?.decode_to(writer)
 }
 
+/// Resolve an output collision without ever replacing an existing file.
+pub fn choose_output(output: &Path, rename_existing: bool) -> Result<PathBuf> {
+    if !output.exists() {
+        return Ok(output.to_path_buf());
+    }
+    if !rename_existing {
+        return Err(En3Error::OutputExists(output.to_path_buf()));
+    }
+    let parent = output.parent().unwrap_or_else(|| Path::new("."));
+    let stem = output
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| En3Error::Format("Output filename must be valid Unicode".into()))?;
+    let extension = output.extension().and_then(|value| value.to_str());
+    for index in 1..100_000_u32 {
+        let filename = match extension {
+            Some(extension) => format!("{stem}-{index}.{extension}"),
+            None => format!("{stem}-{index}"),
+        };
+        let candidate = parent.join(filename);
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(En3Error::Format(
+        "Unable to find a free output filename".into(),
+    ))
+}
+
+pub fn inspect_file(archive: &Path, password: &str) -> Result<StreamInfo> {
+    let decoder = ModernDecoder::new(File::open(archive)?, password)?;
+    Ok(StreamInfo {
+        filename: decoder.filename,
+        original_size: decoder.original_size,
+    })
+}
+
+pub fn verify_file_monitored<F: FnMut(u64) -> io::Result<()>>(
+    archive: &Path,
+    password: &str,
+    on_progress: F,
+) -> Result<FileInfo> {
+    let reader = MonitoredReader::new(File::open(archive)?, on_progress);
+    let info = decrypt(reader, &mut io::sink(), password)?;
+    Ok(FileInfo {
+        filename: info.filename,
+        original_size: info.original_size,
+        output: PathBuf::new(),
+    })
+}
+
 pub fn encrypt_file(input: &Path, password: &str, output: Option<&Path>) -> Result<FileInfo> {
     encrypt_file_monitored(input, password, output, |_| Ok(()))
 }
