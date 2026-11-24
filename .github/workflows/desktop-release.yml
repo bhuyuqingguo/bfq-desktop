@@ -104,15 +104,15 @@ jobs:
         if: matrix.kind == 'windows'
         run: |
           New-Item -ItemType Directory -Path release -Force | Out-Null
-          Copy-Item "src-tauri/target/${{ matrix.target }}/release/bfq-desktop.exe" "release/bfq-desktop-windows-x64.exe"
+          Copy-Item "src-tauri/target/${{ matrix.target }}/release/bfq-desktop.exe" "release/guanhai-bafen-windows-x64.exe"
 
       - name: Collect Linux artifacts
         if: matrix.kind == 'linux'
         run: |
           mkdir -p release
-          cp "src-tauri/target/${{ matrix.target }}/release/bfq-desktop" "release/bfq-desktop-linux-x64"
-          tar -C "src-tauri/target/${{ matrix.target }}/release" -czf "release/bfq-desktop-linux-x64.tar.gz" bfq-desktop
-          find "src-tauri/target/${{ matrix.target }}/release/bundle/deb" -maxdepth 1 -name '*.deb' -exec cp {} "release/bfq-desktop-linux-x64.deb" \;
+          cp "src-tauri/target/${{ matrix.target }}/release/bfq-desktop" "release/guanhai-bafen-linux-x64"
+          tar -C "src-tauri/target/${{ matrix.target }}/release" -czf "release/guanhai-bafen-linux-x64.tar.gz" bfq-desktop
+          find "src-tauri/target/${{ matrix.target }}/release/bundle/deb" -maxdepth 1 -name '*.deb' -exec cp {} "release/guanhai-bafen-linux-x64.deb" \;
 
       - name: Collect macOS artifact
         if: matrix.kind == 'macos'
@@ -120,11 +120,11 @@ jobs:
           mkdir -p release
           app_path=$(find "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name '*.app' -print -quit)
           test -n "$app_path"
-          ditto -c -k --sequesterRsrc --keepParent "$app_path" "release/bfq-desktop-${{ matrix.name }}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" "release/guanhai-bafen-${{ matrix.name }}.zip"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: bfq-desktop-${{ matrix.name }}
+          name: guanhai-bafen-${{ matrix.name }}
           path: desktop/release/*
           if-no-files-found: error
           retention-days: 14

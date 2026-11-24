@@ -3,104 +3,160 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BFQ 封装工具</title>
+    <meta name="theme-color" content="#003000" />
+    <title>观海·八分｜文件封装与恢复</title>
   </head>
   <body>
-    <header class="utility-bar">
-      <div class="brand">
-        <svg viewBox="0 0 28 28" aria-hidden="true"><path d="M4 4h20v20H4zM4 10h20M10 10v14" /></svg>
-        <strong>BFQ 封装工具</strong>
+    <div id="splash" class="splash" role="dialog" aria-label="观海·八分正在启动">
+      <div class="splash-frame" aria-hidden="true"></div>
+      <div class="splash-center">
+        <svg class="splash-mark" viewBox="0 0 120 120" aria-hidden="true">
+          <g transform="rotate(0 60 60)"><path class="splash-segment" style="--i:0;--tx:0px;--ty:-24px;--turn:-24deg" d="M60 10A50 50 0 0 1 95.36 24.64L79.66 40.34A28 28 0 0 0 60 32Z" /></g>
+          <g transform="rotate(45 60 60)"><path class="splash-segment" style="--i:1;--tx:20px;--ty:-16px;--turn:18deg" d="M60 10A50 50 0 0 1 95.36 24.64L79.66 40.34A28 28 0 0 0 60 32Z" /></g>
+          <g transform="rotate(90 60 60)"><path class="splash-segment" style="--i:2;--tx:26px;--ty:0px;--turn:-20deg" d="M60 10A50 50 0 0 1 95.36 24.64L79.66 40.34A28 28 0 0 0 60 32Z" /></g>
+          <g transform="rotate(135 60 60)"><path class="splash-segment" style="--i:3;--tx:18px;--ty:20px;--turn:26deg" d="M60 10A50 50 0 0 1 95.36 24.64L79.66 40.34A28 28 0 0 0 60 32Z" /></g>
+          <g transform="rotate(180 60 60)"><path class="splash-segment" style="--i:4;--tx:0px;--ty:25px;--turn:-18deg" d="M60 10A50 50 0 0 1 95.36 24.64L79.66 40.34A28 28 0 0 0 60 32Z" /></g>
+          <g transform="rotate(225 60 60)"><path class="splash-segment" style="--i:5;--tx:-20px;--ty:18px;--turn:22deg" d="M60 10A50 50 0 0 1 95.36 24.64L79.66 40.34A28 28 0 0 0 60 32Z" /></g>
+          <g transform="rotate(270 60 60)"><path class="splash-segment" style="--i:6;--tx:-25px;--ty:0px;--turn:-26deg" d="M60 10A50 50 0 0 1 95.36 24.64L79.66 40.34A28 28 0 0 0 60 32Z" /></g>
+          <g transform="rotate(315 60 60)"><path class="splash-segment" style="--i:7;--tx:-18px;--ty:-18px;--turn:20deg" d="M60 10A50 50 0 0 1 95.36 24.64L79.66 40.34A28 28 0 0 0 60 32Z" /></g>
+          <circle class="splash-core" cx="60" cy="60" r="24" />
+          <text class="splash-eight" x="60" y="70" text-anchor="middle">八</text>
+        </svg>
+        <div class="splash-horizon" aria-hidden="true"><span></span><i></i><span></span></div>
+        <div class="splash-wordmark">观海<span>·</span>八分</div>
+        <p class="splash-subtitle">文件封装与恢复</p>
+        <p class="splash-meta">GUANHAI ARCHIVE / 08</p>
       </div>
-      <span class="format-note">ARGON2ID · AES-256-GCM</span>
-      <span class="version">DESKTOP / 0.1</span>
-    </header>
+      <button id="skip-splash" class="skip-splash" type="button">跳过开场</button>
+    </div>
 
-    <nav class="mode-tabs" aria-label="操作模式">
-      <button data-mode="pack" class="active" aria-selected="true">文件封装</button>
-      <button data-mode="unpack" aria-selected="false">BFQ 拆包</button>
-      <button data-mode="migrate" aria-selected="false">EN3 迁移</button>
-      <button data-mode="recover" aria-selected="false">EN3 恢复</button>
-    </nav>
-
-    <main>
-      <section class="file-column" aria-labelledby="file-heading">
-        <div class="section-heading">
-          <span>01</span>
-          <h1 id="file-heading">选择要封装的文件</h1>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-block">
+          <svg class="brand-seal" viewBox="0 0 48 48" aria-hidden="true">
+            <circle cx="24" cy="24" r="21" />
+            <path d="M24 3v8M24 37v8M3 24h8M37 24h8M9.2 9.2l5.7 5.7M33.1 33.1l5.7 5.7M38.8 9.2l-5.7 5.7M14.9 33.1l-5.7 5.7" />
+            <text x="24" y="30" text-anchor="middle">八</text>
+          </svg>
+          <div class="brand-name">观海<span>·</span>八分</div>
+          <p>观海系列 / 文件安全</p>
         </div>
 
-        <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="选择或拖入文件">
-          <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M9 7h22l8 8v26H9zM31 7v9h8M17 30l7 7 7-7M24 20v17" /></svg>
-          <p id="drop-title">把文件拖到这里</p>
-          <p id="drop-subtitle">单个文件，内容将流式处理</p>
-          <button id="choose-input" class="text-button" type="button">浏览文件</button>
-        </div>
+        <nav class="mode-tabs" aria-label="操作模式">
+          <button data-mode="pack" class="active" aria-selected="true">
+            <span class="nav-index">01</span><span class="nav-copy"><strong>文件封装</strong><small>PACK / BFQ</small></span>
+          </button>
+          <button data-mode="unpack" aria-selected="false">
+            <span class="nav-index">02</span><span class="nav-copy"><strong>BFQ 拆包</strong><small>UNPACK</small></span>
+          </button>
+          <button data-mode="migrate" aria-selected="false">
+            <span class="nav-index">03</span><span class="nav-copy"><strong>EN3 迁移</strong><small>MIGRATE</small></span>
+          </button>
+          <button data-mode="recover" aria-selected="false">
+            <span class="nav-index">04</span><span class="nav-copy"><strong>EN3 恢复</strong><small>RECOVER</small></span>
+          </button>
+        </nav>
 
-        <div class="path-block">
-          <div class="path-label"><span>输入</span><span id="input-state">未选择</span></div>
-          <div id="input-path" class="path-value empty">—</div>
+        <div class="sidebar-foot">
+          <div><span class="local-dot"></span>本地处理，不经过网络</div>
+          <p>ARGON2ID<br />AES-256-GCM</p>
+          <span class="sidebar-motto">八分封存，原貌复归。</span>
         </div>
-        <div class="path-block">
-          <div class="path-label"><span>输出</span><button id="choose-output" type="button">更改位置</button></div>
-          <div id="output-path" class="path-value empty">自动生成 .bfq 文件</div>
-        </div>
+      </aside>
 
-        <div class="format-explainer">
-          <strong id="format-title">新格式 BFQ</strong>
-          <p id="format-description">文件名和内容均加密。每次封装使用新的随机盐，不记录口令。</p>
-        </div>
-      </section>
+      <div class="workspace">
+        <header class="utility-bar">
+          <div class="breadcrumb"><span>观海</span><i>/</i><strong>文件封装与恢复</strong></div>
+          <div class="utility-meta"><span>BFQ 格式</span><span>DESKTOP / 0.2</span></div>
+        </header>
 
-      <section class="operation-column" aria-labelledby="operation-heading">
-        <div class="section-heading">
-          <span>02</span>
-          <h2 id="operation-heading">设置口令并执行</h2>
-        </div>
-
-        <div class="password-area">
-          <label for="password" id="password-label">封装口令</label>
-          <div class="password-input">
-            <input id="password" type="password" autocomplete="off" spellcheck="false" />
-            <button id="toggle-password" type="button" aria-label="显示或隐藏口令">显示</button>
-          </div>
-
-          <div id="new-password-group" hidden>
-            <label for="new-password">新 BFQ 口令</label>
-            <div class="password-input">
-              <input id="new-password" type="password" autocomplete="off" spellcheck="false" />
-              <button id="toggle-new-password" type="button" aria-label="显示或隐藏新口令">显示</button>
+        <main>
+          <section class="file-column" aria-labelledby="file-heading">
+            <div class="section-heading">
+              <div class="section-kicker"><span>01</span> SOURCE / 文件</div>
+              <h1 id="file-heading">选择要封装的文件</h1>
+              <p>一次处理一个文件，原文件始终保持不变。</p>
             </div>
-          </div>
 
-          <div id="confirm-group">
-            <label for="confirm-password">再次输入口令</label>
-            <input id="confirm-password" type="password" autocomplete="off" spellcheck="false" />
-          </div>
-          <div class="password-tools">
-            <button id="generate-password" class="text-button" type="button">生成随机口令</button>
-            <span>口令只用于本次操作</span>
-          </div>
-        </div>
+            <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="选择或拖入文件">
+              <svg viewBox="0 0 56 56" aria-hidden="true">
+                <path class="file-outline" d="M12 5h23l10 10v36H12zM35 5v11h10" />
+                <path class="file-wave" d="M18 32c4-4 7 4 11 0s7 4 11 0M18 39c4-4 7 4 11 0s7 4 11 0" />
+                <path class="file-plus" d="M39 42v9M34.5 46.5h9" />
+              </svg>
+              <p id="drop-title">把文件拖到这里</p>
+              <p id="drop-subtitle">任意文件，内容将流式处理</p>
+              <button id="choose-input" class="text-button" type="button">浏览文件 <span>↗</span></button>
+            </div>
 
-        <div class="action-area">
-          <button id="execute" class="execute-button" type="button" disabled>开始封装</button>
-          <p id="validation-message" class="validation-message">请选择输入文件并填写口令</p>
-        </div>
+            <div class="path-block">
+              <div class="path-label"><span>输入文件</span><span id="input-state">未选择</span></div>
+              <div id="input-path" class="path-value empty">尚未选择文件</div>
+            </div>
+            <div class="path-block">
+              <div class="path-label"><span>保存到</span><button id="choose-output" type="button">更改位置 ↗</button></div>
+              <div id="output-path" class="path-value empty">自动生成 .bfq 文件</div>
+            </div>
 
-        <div id="progress-area" class="progress-area" hidden>
-          <div class="progress-copy"><span id="progress-status">正在处理</span><strong id="progress-percent">0%</strong></div>
-          <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div>
-          <button id="cancel" class="cancel-button" type="button">取消任务</button>
-        </div>
+            <div class="format-explainer">
+              <span class="format-stamp" aria-hidden="true">密</span>
+              <div><strong id="format-title">新格式 BFQ</strong><p id="format-description">文件名和内容均加密。每次封装使用新的随机盐，不记录口令。</p></div>
+            </div>
+          </section>
 
-        <div id="result" class="result" aria-live="polite">
-          <span class="result-mark">—</span>
-          <p>输出文件已存在时会停止，不会覆盖原文件。</p>
-        </div>
-      </section>
-    </main>
+          <section class="operation-column" aria-labelledby="operation-heading">
+            <div class="section-heading">
+              <div class="section-kicker"><span>02</span> KEY / 口令</div>
+              <h2 id="operation-heading">设置口令并执行</h2>
+              <p>口令只在当前设备参与运算。</p>
+            </div>
 
-    <footer><span>RUST CORE / TAURI 2</span><span>旧 EN3 仅读取与迁移，不再生成</span></footer>
+            <div class="password-area">
+              <label for="password" id="password-label">封装口令</label>
+              <div class="password-input">
+                <input id="password" type="password" autocomplete="off" spellcheck="false" placeholder="输入口令" />
+                <button id="toggle-password" type="button" aria-label="显示或隐藏口令">显示</button>
+              </div>
+
+              <div id="new-password-group" hidden>
+                <label for="new-password">新 BFQ 口令</label>
+                <div class="password-input">
+                  <input id="new-password" type="password" autocomplete="off" spellcheck="false" placeholder="输入新口令" />
+                  <button id="toggle-new-password" type="button" aria-label="显示或隐藏新口令">显示</button>
+                </div>
+              </div>
+
+              <div id="confirm-group">
+                <label for="confirm-password">再次输入口令</label>
+                <input id="confirm-password" type="password" autocomplete="off" spellcheck="false" placeholder="再次输入以确认" />
+              </div>
+              <div class="password-tools">
+                <button id="generate-password" class="text-button" type="button">生成随机口令</button>
+                <span>不保存 · 不上传</span>
+              </div>
+            </div>
+
+            <div class="action-area">
+              <button id="execute" class="execute-button" type="button" disabled>开始封装</button>
+              <p id="validation-message" class="validation-message">请选择输入文件并填写口令</p>
+            </div>
+
+            <div id="progress-area" class="progress-area" hidden>
+              <div class="progress-copy"><span id="progress-status">正在处理</span><strong id="progress-percent">0%</strong></div>
+              <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div>
+              <button id="cancel" class="cancel-button" type="button">取消任务</button>
+            </div>
+
+            <div id="result" class="result" aria-live="polite">
+              <span class="result-mark">—</span>
+              <p>若输出已存在，将停止操作，绝不覆盖。</p>
+            </div>
+          </section>
+        </main>
+
+        <footer><span>GUANHAI / INDEPENDENT RUST CORE</span><span>EN3 仅读取与迁移，不再生成</span></footer>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

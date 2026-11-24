@@ -242,3 +242,16 @@ void getCurrentWindow().onDragDropEvent((event) => {
 });
 
 updateMode("pack");
+
+const splash = $("splash");
+let splashDismissed = false;
+function dismissSplash() {
+  if (splashDismissed) return;
+  splashDismissed = true;
+  splash.classList.add("leaving");
+  const finish = () => { splash.hidden = true; };
+  splash.addEventListener("animationend", finish, { once: true });
+  window.setTimeout(finish, 550);
+}
+$("skip-splash").addEventListener("click", dismissSplash);
+window.setTimeout(dismissSplash, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 80 : 2300);
