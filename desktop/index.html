@@ -1,14 +1,15 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="deep" data-motion="on">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#003000" />
+    <meta name="theme-color" content="#2e596c" />
     <title>观海·八分｜文件封装与恢复</title>
   </head>
   <body>
     <div id="splash" class="splash" role="dialog" aria-label="观海·八分正在启动">
       <div class="splash-frame" aria-hidden="true"></div>
+      <div class="splash-shapes" aria-hidden="true"><i></i><i></i><i></i></div>
       <div class="splash-center">
         <svg class="splash-mark" viewBox="0 0 120 120" aria-hidden="true">
           <g transform="rotate(0 60 60)"><path class="splash-segment" style="--i:0;--tx:0px;--ty:-24px;--turn:-24deg" d="M60 10A50 50 0 0 1 95.36 24.64L79.66 40.34A28 28 0 0 0 60 32Z" /></g>
@@ -24,7 +25,7 @@
         </svg>
         <div class="splash-horizon" aria-hidden="true"><span></span><i></i><span></span></div>
         <div class="splash-wordmark">观海<span>·</span>八分</div>
-        <p class="splash-subtitle">文件封装与恢复</p>
+        <p class="splash-subtitle">八分封存，原貌复归</p>
         <p class="splash-meta">GUANHAI ARCHIVE / 08</p>
       </div>
       <button id="skip-splash" class="skip-splash" type="button">跳过开场</button>
@@ -59,7 +60,7 @@
 
         <div class="sidebar-foot">
           <div><span class="local-dot"></span>本地处理，不经过网络</div>
-          <p>ARGON2ID<br />AES-256-GCM</p>
+          <p>文件只在这台设备上处理<br />口令不保存，也不上传</p>
           <span class="sidebar-motto">八分封存，原貌复归。</span>
         </div>
       </aside>
@@ -67,11 +68,36 @@
       <div class="workspace">
         <header class="utility-bar">
           <div class="breadcrumb"><span>观海</span><i>/</i><strong>文件封装与恢复</strong></div>
-          <div class="utility-meta"><span>BFQ 格式</span><span>DESKTOP / 0.2</span></div>
+          <div class="utility-actions">
+            <span class="local-pill"><i></i>仅在本机处理</span>
+            <button id="appearance-toggle" class="appearance-toggle" type="button" aria-expanded="false" aria-controls="appearance-panel">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="7" cy="7" r="3"></circle><circle cx="14" cy="7" r="3"></circle><circle cx="7" cy="14" r="3"></circle><path d="M11 14h6v3h-6z"></path></svg>
+              外观
+            </button>
+          </div>
         </header>
 
+        <section id="appearance-panel" class="appearance-panel" aria-label="外观设置" hidden>
+          <div class="appearance-heading"><div><strong>换一种看海的心情</strong><p>选择会保存在这台设备上</p></div><button id="appearance-close" type="button" aria-label="关闭外观设置">×</button></div>
+          <div class="theme-options" role="radiogroup" aria-label="界面皮肤">
+            <button type="button" data-theme-choice="deep" role="radio" aria-checked="true" class="selected">
+              <span class="theme-preview preview-deep" aria-hidden="true"><i></i><i></i><i></i></span><strong>深海</strong><small>沉静 · 纸暖</small>
+            </button>
+            <button type="button" data-theme-choice="day" role="radio" aria-checked="false">
+              <span class="theme-preview preview-day" aria-hidden="true"><i></i><i></i><i></i></span><strong>晴汐</strong><small>明亮 · 活泼</small>
+            </button>
+            <button type="button" data-theme-choice="night" role="radio" aria-checked="false">
+              <span class="theme-preview preview-night" aria-hidden="true"><i></i><i></i><i></i></span><strong>夜航</strong><small>纯黑 · 橘光</small>
+            </button>
+          </div>
+          <div class="setting-row"><div><strong>开场声音</strong><small>印记合拢时，响起短促提示音</small></div><button id="sound-toggle" class="switch" type="button" role="switch" aria-checked="true" aria-label="开场声音"><span></span></button></div>
+          <button id="preview-sound" class="preview-sound" type="button">试听开场声音 <span>↗</span></button>
+          <div class="setting-row"><div><strong>灵活动效</strong><small>几何色块、印记与完成反馈</small></div><button id="motion-toggle" class="switch" type="button" role="switch" aria-checked="true" aria-label="灵活动效"><span></span></button></div>
+        </section>
+
         <main>
-          <section class="file-column" aria-labelledby="file-heading">
+          <section id="file-column" class="file-column" aria-labelledby="file-heading">
+            <div class="play-shapes" aria-hidden="true"><i class="shape-a"></i><i class="shape-b"></i><i class="shape-c"></i></div>
             <div class="section-heading">
               <div class="section-kicker"><span>01</span> SOURCE / 文件</div>
               <h1 id="file-heading">选择要封装的文件</h1>
@@ -100,7 +126,7 @@
 
             <div class="format-explainer">
               <span class="format-stamp" aria-hidden="true">密</span>
-              <div><strong id="format-title">新格式 BFQ</strong><p id="format-description">文件名和内容均加密。每次封装使用新的随机盐，不记录口令。</p></div>
+              <div><strong id="format-title">新格式 BFQ</strong><p id="format-description">文件名和内容都会受到保护。每次封装都生成独立的新包，不记录口令。</p></div>
             </div>
           </section>
 
@@ -154,7 +180,7 @@
           </section>
         </main>
 
-        <footer><span>GUANHAI / INDEPENDENT RUST CORE</span><span>EN3 仅读取与迁移，不再生成</span></footer>
+        <footer><span>GUANHAI / LOCAL FIRST</span><span>EN3 仅读取与迁移，不再生成</span></footer>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

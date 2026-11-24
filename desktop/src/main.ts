@@ -5,11 +5,14 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
 type Mode = "pack" | "unpack" | "migrate" | "recover";
+type Theme = "deep" | "day" | "night";
 type OperationResult = { filename: string; originalSize: number; output: string };
 type Progress = { processed: number; total: number; percent: number };
+type Appearance = { theme: Theme; sound: boolean; motion: boolean };
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const modeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-mode]"));
+const themeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-theme-choice]"));
 const inputPath = $("input-path");
 const outputPath = $("output-path");
 const password = $<HTMLInputElement>("password");
@@ -19,19 +22,22 @@ const execute = $<HTMLButtonElement>("execute");
 const validation = $("validation-message");
 const progressArea = $("progress-area");
 const result = $("result");
+const appearancePanel = $("appearance-panel");
+const appearanceToggle = $<HTMLButtonElement>("appearance-toggle");
+const storageKey = "guanhai-bafen-appearance-v1";
 
 const modeCopy: Record<Mode, { heading: string; action: string; password: string; accept: string; title: string; description: string }> = {
   pack: {
     heading: "选择要封装的文件", action: "开始封装", password: "封装口令", accept: "任意文件",
-    title: "新格式 BFQ", description: "文件名和内容均加密。每次封装使用新的随机盐，不记录口令。",
+    title: "新格式 BFQ", description: "文件名和内容都会受到保护。每次封装都生成独立的新包，不记录口令。",
   },
   unpack: {
-    heading: "选择 BFQ 加密包", action: "认证并拆包", password: "拆包口令", accept: "BFQ 加密包",
-    title: "完整认证后输出", description: "逐块验证密文、块序号和终止标记；错误或篡改不会留下输出文件。",
+    heading: "选择 BFQ 加密包", action: "验证并拆包", password: "拆包口令", accept: "BFQ 加密包",
+    title: "完整验证后输出", description: "核对口令与文件完整性后才输出；口令错误或文件损坏不会留下结果。",
   },
   migrate: {
     heading: "选择旧 EN3 文件", action: "迁移到 BFQ", password: "旧 EN3 口令", accept: "旧 EN3 文件",
-    title: "直接流式迁移", description: "旧包解密流直接进入新格式加密流，不生成明文中间文件。",
+    title: "直接迁移旧文件", description: "从旧包直接转换为新包，不生成可读的中间文件。",
   },
   recover: {
     heading: "选择旧 EN3 文件", action: "恢复旧文件", password: "旧 EN3 口令", accept: "旧 EN3 文件",
@@ -43,6 +49,40 @@ let mode: Mode = "pack";
 let selectedInput = "";
 let selectedOutput = "";
 let running = false;
+let appearance: Appearance = { theme: "deep", sound: true, motion: !window.matchMedia("(prefers-reduced-motion: reduce)").matches };
+
+function loadAppearance() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null") as Partial<Appearance> | null;
+    if (saved) {
+      if (saved.theme === "deep" || saved.theme === "day" || saved.theme === "night") appearance.theme = saved.theme;
+      if (typeof saved.sound === "boolean") appearance.sound = saved.sound;
+      if (typeof saved.motion === "boolean") appearance.motion = saved.motion;
+    }
+  } catch { /* A blocked local store only disables preference persistence. */ }
+}
+
+function applyAppearance() {
+  document.documentElement.dataset.theme = appearance.theme;
+  document.documentElement.dataset.motion = appearance.motion ? "on" : "off";
+  const themeColor = { deep: "#2e596c", day: "#1798e8", night: "#000000" }[appearance.theme];
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themeColor);
+  for (const button of themeButtons) {
+    const selected = button.dataset.themeChoice === appearance.theme;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-checked", String(selected));
+  }
+  for (const [id, enabled] of [["sound-toggle", appearance.sound], ["motion-toggle", appearance.motion]] as const) {
+    $(id).setAttribute("aria-checked", String(enabled));
+  }
+  $<HTMLButtonElement>("preview-sound").disabled = !appearance.sound;
+  try { localStorage.setItem(storageKey, JSON.stringify(appearance)); } catch { /* Keep the current session usable. */ }
+}
+
+function setAppearanceOpen(open: boolean) {
+  appearancePanel.hidden = !open;
+  appearanceToggle.setAttribute("aria-expanded", String(open));
+}
 
 function basename(path: string) {
   return path.replaceAll("\\", "/").split("/").filter(Boolean).pop() ?? path;
@@ -112,6 +152,9 @@ function setInput(path: string) {
   selectedOutput = suggestedOutput(path);
   result.className = "result";
   result.innerHTML = '<span class="result-mark">—</span><p>输出文件已存在时会停止，不会覆盖原文件。</p>';
+  const dropZone = $("drop-zone");
+  dropZone.classList.remove("confirmed");
+  requestAnimationFrame(() => dropZone.classList.add("confirmed"));
   renderPaths();
   validate();
 }
@@ -144,12 +187,21 @@ function setBusy(value: boolean) {
   $<HTMLButtonElement>("cancel").disabled = !value;
   validate();
   if (value) {
-    validation.textContent = "密钥派生和文件处理在后台执行";
+    validation.textContent = "文件正在后台安全处理";
     validation.classList.remove("error");
     $("progress-fill").style.width = "0%";
     $("progress-percent").textContent = "0%";
-    $("progress-status").textContent = "正在初始化";
+    $("progress-status").textContent = "正在准备";
   }
+}
+
+function friendlyError(error: unknown) {
+  const message = String(error);
+  if (message.includes("Operation cancelled") || message.includes("操作已取消")) return "操作已取消，未生成输出文件。";
+  if (message.includes("Output already exists")) return "目标文件已存在，已停止操作，原文件未被覆盖。";
+  if (message.includes("Wrong password") || message.includes("authentication failed")) return "口令不正确，或文件已经损坏。";
+  if (message.includes("Not an enc3") || message.includes("Not a BFQ")) return "所选文件与当前操作模式不匹配。";
+  return message;
 }
 
 async function runOperation() {
@@ -175,7 +227,7 @@ async function runOperation() {
     $("progress-fill").style.width = "100%";
   } catch (error) {
     result.className = "result error";
-    result.innerHTML = `<span class="result-mark">×</span><p>${escapeHtml(String(error))}</p>`;
+    result.innerHTML = `<span class="result-mark">×</span><p>${escapeHtml(friendlyError(error))}</p>`;
   } finally {
     setBusy(false);
     renderPaths();
@@ -221,6 +273,41 @@ $("cancel").addEventListener("click", async () => {
 });
 for (const field of [password, newPassword, confirmPassword]) field.addEventListener("input", () => validate());
 
+appearanceToggle.addEventListener("click", () => setAppearanceOpen(appearancePanel.hidden));
+$("appearance-close").addEventListener("click", () => setAppearanceOpen(false));
+for (const button of themeButtons) button.addEventListener("click", () => {
+  appearance.theme = button.dataset.themeChoice as Theme;
+  applyAppearance();
+});
+$("sound-toggle").addEventListener("click", () => {
+  appearance.sound = !appearance.sound;
+  applyAppearance();
+});
+$("motion-toggle").addEventListener("click", () => {
+  appearance.motion = !appearance.motion;
+  applyAppearance();
+});
+document.addEventListener("pointerdown", (event) => {
+  const target = event.target as Node;
+  if (!appearancePanel.hidden && !appearancePanel.contains(target) && !appearanceToggle.contains(target)) setAppearanceOpen(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") setAppearanceOpen(false);
+});
+
+$("file-column").addEventListener("pointermove", (event) => {
+  if (!appearance.motion) return;
+  const column = event.currentTarget as HTMLElement;
+  const bounds = column.getBoundingClientRect();
+  column.style.setProperty("--pointer-x", String(((event.clientX - bounds.left) / bounds.width - .5) * 2));
+  column.style.setProperty("--pointer-y", String(((event.clientY - bounds.top) / bounds.height - .5) * 2));
+});
+$("file-column").addEventListener("pointerleave", (event) => {
+  const column = event.currentTarget as HTMLElement;
+  column.style.setProperty("--pointer-x", "0");
+  column.style.setProperty("--pointer-y", "0");
+});
+
 void listen<Progress>("operation-progress", (event) => {
   const progress = event.payload;
   $("progress-status").textContent = `${formatBytes(progress.processed)} / ${formatBytes(progress.total)}`;
@@ -231,8 +318,8 @@ void listen<Progress>("operation-progress", (event) => {
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 void getCurrentWindow().onDragDropEvent((event) => {
@@ -241,6 +328,57 @@ void getCurrentWindow().onDragDropEvent((event) => {
   if (type === "drop" && !running && event.payload.paths.length > 0) setInput(event.payload.paths[0]);
 });
 
+let audioContext: AudioContext | null = null;
+let startupSoundPlayed = false;
+let startupSoundPending = false;
+
+async function playChime() {
+  const AudioConstructor = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioConstructor) throw new Error("Audio is unavailable");
+  audioContext ??= new AudioConstructor();
+  if (audioContext.state === "suspended") await audioContext.resume();
+  if (audioContext.state !== "running") throw new Error("Audio is locked");
+  const now = audioContext.currentTime + .015;
+  const master = audioContext.createGain();
+  master.gain.setValueAtTime(.16, now);
+  master.connect(audioContext.destination);
+  [392, 523.25, 659.25].forEach((frequency, index) => {
+    const start = now + index * .105;
+    const oscillator = audioContext!.createOscillator();
+    const gain = audioContext!.createGain();
+    oscillator.type = index === 2 ? "sine" : "triangle";
+    oscillator.frequency.setValueAtTime(frequency, start);
+    gain.gain.setValueAtTime(.0001, start);
+    gain.gain.exponentialRampToValueAtTime(index === 2 ? .24 : .16, start + .025);
+    gain.gain.exponentialRampToValueAtTime(.0001, start + .52);
+    oscillator.connect(gain);
+    gain.connect(master);
+    oscillator.start(start);
+    oscillator.stop(start + .55);
+  });
+}
+
+async function tryStartupChime(preview = false) {
+  if (!appearance.sound || (startupSoundPlayed && !preview)) return;
+  try {
+    await playChime();
+    if (!preview) startupSoundPlayed = true;
+    startupSoundPending = false;
+  } catch {
+    if (!preview) startupSoundPending = true;
+  }
+}
+
+$("preview-sound").addEventListener("click", () => void tryStartupChime(true));
+window.addEventListener("pointerdown", () => {
+  if (startupSoundPending && !splashDismissed) void tryStartupChime();
+}, { passive: true });
+window.addEventListener("keydown", () => {
+  if (startupSoundPending && !splashDismissed) void tryStartupChime();
+});
+
+loadAppearance();
+applyAppearance();
 updateMode("pack");
 
 const splash = $("splash");
@@ -254,4 +392,5 @@ function dismissSplash() {
   window.setTimeout(finish, 550);
 }
 $("skip-splash").addEventListener("click", dismissSplash);
-window.setTimeout(dismissSplash, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 80 : 2300);
+window.setTimeout(() => void tryStartupChime(), appearance.motion ? 760 : 100);
+window.setTimeout(dismissSplash, appearance.motion ? 2500 : 120);

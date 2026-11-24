@@ -149,7 +149,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "bfq-desktop"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "en3-recovery",
  "serde",
@@ -893,12 +893,14 @@ checksum = "4ef6b89e5b37196644d8796de5268852ff179b44e96276cf4290264843743bb7"
 
 [[package]]
 name = "en3-recovery"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "aes-gcm",
  "argon2",
  "encoding_rs",
  "getrandom 0.4.3",
+ "serde",
+ "serde_json",
  "sm3",
  "sm4",
  "zeroize",

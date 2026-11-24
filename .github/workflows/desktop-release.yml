@@ -100,11 +100,16 @@ jobs:
         if: matrix.kind == 'macos'
         run: npm run tauri -- build --bundles app --target "${{ matrix.target }}"
 
+      - name: Build shared core for application integration
+        working-directory: .
+        run: cargo build --locked --release --target "${{ matrix.target }}" --bin guanhai-core
+
       - name: Collect Windows artifact
         if: matrix.kind == 'windows'
         run: |
           New-Item -ItemType Directory -Path release -Force | Out-Null
           Copy-Item "src-tauri/target/${{ matrix.target }}/release/bfq-desktop.exe" "release/guanhai-bafen-windows-x64.exe"
+          Copy-Item "../target/${{ matrix.target }}/release/guanhai-core.exe" "release/guanhai-core-windows-x64.exe"
 
       - name: Collect Linux artifacts
         if: matrix.kind == 'linux'
@@ -113,6 +118,9 @@ jobs:
           cp "src-tauri/target/${{ matrix.target }}/release/bfq-desktop" "release/guanhai-bafen-linux-x64"
           tar -C "src-tauri/target/${{ matrix.target }}/release" -czf "release/guanhai-bafen-linux-x64.tar.gz" bfq-desktop
           find "src-tauri/target/${{ matrix.target }}/release/bundle/deb" -maxdepth 1 -name '*.deb' -exec cp {} "release/guanhai-bafen-linux-x64.deb" \;
+          cp "../target/${{ matrix.target }}/release/guanhai-core" "release/guanhai-core-linux-x64"
+          tar -C release -czf "release/guanhai-core-linux-x64.tar.gz" guanhai-core-linux-x64
+          rm "release/guanhai-core-linux-x64"
 
       - name: Collect macOS artifact
         if: matrix.kind == 'macos'
@@ -121,6 +129,9 @@ jobs:
           app_path=$(find "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name '*.app' -print -quit)
           test -n "$app_path"
           ditto -c -k --sequesterRsrc --keepParent "$app_path" "release/guanhai-bafen-${{ matrix.name }}.zip"
+          cp "../target/${{ matrix.target }}/release/guanhai-core" "release/guanhai-core-${{ matrix.name }}"
+          tar -C release -czf "release/guanhai-core-${{ matrix.name }}.tar.gz" "guanhai-core-${{ matrix.name }}"
+          rm "release/guanhai-core-${{ matrix.name }}"
 
       - uses: actions/upload-artifact@v7
         with:
