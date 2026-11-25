@@ -873,6 +873,7 @@ mod win7ui {
                 DispatchMessageW(&mut message);
             }
         }
+        Ok(())
     }
 
 }

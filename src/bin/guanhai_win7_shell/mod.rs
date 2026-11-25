@@ -158,12 +158,9 @@ fn window_store(window: HWND) -> io::Result<ComPtr<IPropertyStore>> {
 }
 
 pub(super) fn set_window_identity(window: HWND) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-
     let store = window_store(window)?;
     let store = store.get();
     let executable = std::env::current_exe()?;
-    let executable_wide: Vec<u16> = executable.as_os_str().encode_wide().collect();
     let installed = installed_executable().is_ok_and(|p| p == executable);
     if !installed {
         let mut value: PROPVARIANT = unsafe { std::mem::zeroed() };
@@ -172,7 +169,9 @@ pub(super) fn set_window_identity(window: HWND) -> io::Result<()> {
             *value.data.boolVal_mut() = -1;
             shell_result(store.SetValue(&PKEY_AppUserModel_PreventPinning, &value))?;
         }
+        return set_text(store, &PKEY_AppUserModel_ID, &mut wide(APP_ID));
     }
+    let executable_wide: Vec<u16> = executable.as_os_str().encode_wide().collect();
 
     let mut command: Vec<u16> = [u16::from(b'"')].into_iter()
         .chain(executable_wide.iter().copied())
