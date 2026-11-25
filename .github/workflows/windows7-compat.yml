@@ -19,7 +19,7 @@ jobs:
           rustup toolchain install nightly --profile minimal --component rust-src
 
       - name: Build Windows 7 compatible applications
-        run: cargo +nightly build --locked --release --target x86_64-win7-windows-msvc --bin en3-recovery --bin guanhai-win7 -Z build-std=std,panic_abort
+        run: cargo +nightly build --release --target x86_64-win7-windows-msvc --bin en3-recovery --bin guanhai-win7 -Z build-std=std,panic_abort
 
       - name: Collect Windows 7 artifacts
         shell: pwsh
