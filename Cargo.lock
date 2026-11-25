@@ -224,6 +224,7 @@ dependencies = [
  "sm4",
  "tempfile",
  "walkdir",
+ "winapi",
  "zeroize",
  "zip",
 ]
