@@ -22,6 +22,7 @@ jobs:
           name=guanhai-bafen-kylin-v10-arm64-portable
           mkdir -p release stage
           dpkg-deb -x original/guanhai-bafen-kylin-v10-arm64.deb "stage/$name"
+          chmod 755 "stage/$name"
           install -m 755 desktop/kylin/guanhai-bafen-v10 "stage/$name/usr/bin/guanhai-bafen"
           rm "stage/$name/usr/share/applications/com.guanhai.bafen.desktop"
           ln -s usr/bin/guanhai-bafen "stage/$name/guanhai-bafen"
