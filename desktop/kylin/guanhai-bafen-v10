@@ -12,7 +12,8 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 APP_ID = "com.guanhai.bafen"
-CORE = "/usr/lib/guanhai-bafen/guanhai-core"
+PREFIX = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+CORE = os.path.join(PREFIX, "lib", "guanhai-bafen", "guanhai-core")
 MODES = (
     ("pack", "文件封装"), ("unpack", "BFQ 拆包"), ("verify", "BFQ 校验"),
     ("migrate", "EN3 迁移"), ("recover", "EN3 恢复"),
@@ -305,8 +306,13 @@ class Desktop(Gtk.Application):
         self.window = None
 
 
-if __name__ == "__main__":
+def configure_identity():
     GLib.set_prgname(APP_ID)
     GLib.set_application_name("观海·八分")
+    Gtk.IconTheme.get_default().prepend_search_path(os.path.join(PREFIX, "share", "icons"))
     Gtk.Window.set_default_icon_name(APP_ID)
+
+
+if __name__ == "__main__":
+    configure_identity()
     raise SystemExit(Desktop().run(None))

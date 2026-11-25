@@ -1,6 +1,7 @@
 """Exercise the installed GUI and static core on the original V10 baseline."""
 import runpy
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -8,11 +9,11 @@ from pathlib import Path
 import gi
 
 gi.require_version('Gtk', '3.0')
-from gi.repository import GLib, Gtk
+from gi.repository import GLib
 
-module = runpy.run_path("/usr/bin/guanhai-bafen", run_name="guanhai_bafen_smoke")
-GLib.set_prgname(module["APP_ID"])
-Gtk.Window.set_default_icon_name(module["APP_ID"])
+launcher = sys.argv[1] if len(sys.argv) > 1 else "/usr/bin/guanhai-bafen"
+module = runpy.run_path(launcher, run_name="guanhai_bafen_smoke")
+module["configure_identity"]()
 app = module["Desktop"]()
 assert app.register(None)
 app.activate()
@@ -37,7 +38,7 @@ window_id = subprocess.check_output(["xdotool", "search", "--onlyvisible", "--cl
 properties = subprocess.check_output(["xprop", "-id", window_id, "WM_CLASS", "_NET_WM_ICON"])
 assert b'"com.guanhai.bafen", "com.guanhai.bafen"' in properties
 assert b"_NET_WM_ICON(CARDINAL)" in properties
-second = subprocess.Popen(["/usr/bin/guanhai-bafen"])
+second = subprocess.Popen([launcher])
 deadline = time.monotonic() + 8
 while second.poll() is None and time.monotonic() < deadline:
     process_events()

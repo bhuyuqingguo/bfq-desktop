@@ -1,0 +1,49 @@
+name: Kylin V10 portable verification
+on:
+  push:
+    branches: [codex/portable-20261125]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  package:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: guanhai-bafen-kylin-v10-arm64
+          run-id: 45561688257
+          github-token: ${{ github.token }}
+          path: original
+      - name: Build portable tarball
+        run: |
+          (cd original && sha256sum -c guanhai-bafen-kylin-v10-arm64.sha256)
+          name=guanhai-bafen-kylin-v10-arm64-portable
+          mkdir -p release
+          dpkg-deb -x original/guanhai-bafen-kylin-v10-arm64.deb "stage/$name"
+          install -m 755 desktop/kylin/guanhai-bafen-v10 "stage/$name/usr/bin/guanhai-bafen"
+          rm "stage/$name/usr/share/applications/com.guanhai.bafen.desktop"
+          ln -s usr/bin/guanhai-bafen "stage/$name/guanhai-bafen"
+          tar -C stage -czf "release/$name.tar.gz" "$name"
+          (cd release && sha256sum "$name.tar.gz" > "$name.sha256")
+      - name: Verify relocation and operation without installation
+        run: |
+          docker run --rm -v "$PWD:/src:ro" -w /src ubuntu:16.04 bash -euxo pipefail -c '
+            export DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
+            apt-get update
+            apt-get install -y --no-install-recommends dbus-x11 fonts-noto-cjk               gir1.2-gtk-3.0 python3-gi x11-utils xauth xdotool xvfb
+            tar -xzf release/guanhai-bafen-kylin-v10-arm64-portable.tar.gz -C /tmp
+            test ! -e /usr/bin/guanhai-bafen
+            test ! -e /usr/lib/guanhai-bafen
+            useradd -m smoke
+            moved="/tmp/观海 八分 免安装"
+            mv /tmp/guanhai-bafen-kylin-v10-arm64-portable "$moved"
+            cd /tmp
+            runuser -u smoke -- dbus-run-session -- xvfb-run -a               timeout 85s python3 /src/desktop/kylin/smoke-v10.py "$moved/guanhai-bafen"
+          '
+      - uses: actions/upload-artifact@v7
+        with:
+          name: guanhai-bafen-kylin-v10-arm64-portable
+          path: release/*
+          if-no-files-found: error
