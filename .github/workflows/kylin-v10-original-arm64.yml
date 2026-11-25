@@ -1,0 +1,47 @@
+name: Original Kylin V10 ARM64
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/kylin-v10-original-arm64]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build static ARM64 Rust core and installer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends desktop-file-utils musl-tools
+          rustup toolchain install stable --profile minimal
+          rustup target add aarch64-unknown-linux-musl
+          cargo test --locked
+          bash desktop/kylin/package-v10.sh
+      - name: Exercise the package with glibc 2.23, Python 3.5 and GTK 3
+        run: |
+          docker run --rm -v "$PWD:/src:ro" -w /src ubuntu:16.04 bash -euxo pipefail -c '
+            export DEBIAN_FRONTEND=noninteractive
+            export LANG=C.UTF-8
+            apt-get -o Acquire::Retries=2 update
+            apt-get install -y --no-install-recommends \
+              dbus-x11 fonts-noto-cjk gir1.2-gtk-3.0 openbox python3-gi \
+              x11-utils xauth xdotool xvfb
+            dpkg -i desktop/release/guanhai-bafen-kylin-v10-arm64.deb
+            getconf GNU_LIBC_VERSION
+            python3 --version
+            /usr/lib/guanhai-bafen/guanhai-core --help
+            useradd -m smoke
+            runuser -u smoke -- dbus-run-session -- xvfb-run -a bash -ec "
+              openbox >/tmp/guanhai-openbox.log 2>&1 &
+              timeout 85s python3 desktop/kylin/smoke-v10.py
+            "
+          '
+      - uses: actions/upload-artifact@v7
+        with:
+          name: guanhai-bafen-kylin-v10-arm64
+          path: desktop/release/*
+          if-no-files-found: error

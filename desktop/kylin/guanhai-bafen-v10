@@ -1,0 +1,312 @@
+#!/usr/bin/python3
+"""Native desktop frontend for the GTK 3.18 / Python 3.5 baseline."""
+import json
+import os
+import subprocess
+import tempfile
+import threading
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gdk, Gio, GLib, Gtk
+
+APP_ID = "com.guanhai.bafen"
+CORE = "/usr/lib/guanhai-bafen/guanhai-core"
+MODES = (
+    ("pack", "文件封装"), ("unpack", "BFQ 拆包"), ("verify", "BFQ 校验"),
+    ("migrate", "EN3 迁移"), ("recover", "EN3 恢复"),
+)
+
+
+class Desktop(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id=APP_ID)
+        self.window = None
+        self.paths = []
+        self.destination = None
+        self.cancel_file = None
+        self.closing = False
+
+    def do_activate(self):
+        if self.window is not None:
+            self.window.present()
+            return
+        self.window = Gtk.ApplicationWindow(application=self, title="观海·八分｜文件封装与恢复")
+        self.window.set_icon_name(APP_ID)
+        self.window.set_wmclass(APP_ID, APP_ID)
+        self.window.set_default_size(700, 510)
+        self.window.connect("delete-event", self.close)
+        self.window.connect("destroy", self.destroy)
+
+        layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=20)
+        self.window.add(layout)
+        banner = Gtk.Label(xalign=0)
+        banner.set_markup("<span size='x-large' weight='bold'>观海·八分</span>")
+        layout.pack_start(banner, False, False, 0)
+
+        self.form = Gtk.Grid(column_spacing=10, row_spacing=8, column_homogeneous=False)
+        layout.pack_start(self.form, False, False, 0)
+        self.mode = Gtk.ComboBoxText()
+        for operation, name in MODES:
+            self.mode.append(operation, name)
+        self.mode.set_active(0)
+        self.mode.connect("changed", self.change_mode)
+        self.form.attach(self.mode, 1, 0, 2, 1)
+        self.label("操作", 0)
+
+        self.form.attach(self.button("选择文件", self.choose_input, False), 1, 1, 1, 1)
+        self.folder = self.button("选择文件夹", self.choose_input, True)
+        self.form.attach(self.folder, 2, 1, 1, 1)
+        self.inputs_label = Gtk.Label(xalign=0, ellipsize=3, hexpand=True)
+        self.form.attach(self.inputs_label, 1, 2, 2, 1)
+        self.label("输入", 1)
+
+        self.output = self.button("选择输出位置", self.choose_output)
+        self.form.attach(self.output, 1, 3, 1, 1)
+        self.reset = self.button("自动命名", lambda *_: self.set_output(None))
+        self.form.attach(self.reset, 2, 3, 1, 1)
+        self.output_label = Gtk.Label(xalign=0, ellipsize=3, hexpand=True)
+        self.form.attach(self.output_label, 1, 4, 2, 1)
+        self.label("输出", 3)
+
+        self.password = self.entry("口令", 5)
+        self.new_password = self.entry("新 BFQ 口令", 6)
+        self.confirmation = self.entry("确认口令", 7)
+        show = Gtk.CheckButton(label="显示口令")
+        show.connect("toggled", self.show_password)
+        self.form.attach(show, 3, 5, 1, 1)
+        self.compress = Gtk.CheckButton(label="压缩文件夹")
+        self.rename = Gtk.CheckButton(label="目标存在时自动改名")
+        self.form.attach(self.compress, 1, 8, 1, 1)
+        self.form.attach(self.rename, 2, 8, 2, 1)
+
+        actions = Gtk.Box(spacing=8)
+        self.execute = self.button("执行", self.run_requests)
+        self.cancel = self.button("取消任务", self.cancel_request)
+        actions.pack_start(self.execute, False, False, 0)
+        actions.pack_start(self.cancel, False, False, 0)
+        layout.pack_start(actions, False, False, 0)
+        self.progress = Gtk.ProgressBar(show_text=True)
+        layout.pack_start(self.progress, False, False, 0)
+        scroll = Gtk.ScrolledWindow(shadow_type=Gtk.ShadowType.IN)
+        self.log = Gtk.TextView(editable=False, cursor_visible=False, wrap_mode=Gtk.WrapMode.WORD_CHAR)
+        scroll.add(self.log)
+        layout.pack_start(scroll, True, True, 0)
+
+        self.window.drag_dest_set(
+            Gtk.DestDefaults.ALL, [Gtk.TargetEntry.new("text/uri-list", 0, 0)], Gdk.DragAction.COPY
+        )
+        self.window.connect("drag-data-received", self.drop)
+        self.window.show_all()
+        self.change_mode()
+        self.set_busy(False)
+
+    def label(self, text, row):
+        label = Gtk.Label(label=text, xalign=0)
+        self.form.attach(label, 0, row, 1, 1)
+        return label
+
+    def entry(self, name, row):
+        entry = Gtk.Entry(visibility=False, hexpand=True)
+        self.form.attach(entry, 1, row, 2, 1)
+        self.label(name, row)
+        return entry
+
+    def button(self, title, action, *args):
+        button = Gtk.Button(label=title)
+        button.connect("clicked", action, *args)
+        return button
+
+    def change_mode(self, *_):
+        mode = self.mode.get_active_id()
+        for entry, row, visible in (
+            (self.new_password, 6, mode == "migrate"),
+            (self.confirmation, 7, mode in ("pack", "migrate")),
+        ):
+            entry.set_visible(visible)
+            self.form.get_child_at(0, row).set_visible(visible)
+        self.folder.set_visible(mode == "pack")
+        self.compress.set_visible(mode == "pack")
+        self.rename.set_visible(mode in ("pack", "unpack", "migrate"))
+        self.set_inputs([])
+
+    def show_password(self, button):
+        for entry in (self.password, self.new_password, self.confirmation):
+            entry.set_visibility(button.get_active())
+
+    def set_inputs(self, paths):
+        self.paths = list(dict.fromkeys(paths))
+        self.inputs_label.set_text("、".join(self.paths) if self.paths else "可选择或拖入文件")
+        self.inputs_label.set_tooltip_text("\n".join(self.paths))
+        self.set_output(None)
+
+    def set_output(self, path):
+        self.destination = path
+        enabled = self.mode.get_active_id() != "verify" and len(self.paths) == 1
+        self.output.set_sensitive(enabled)
+        self.reset.set_sensitive(enabled and path is not None)
+        automatic = "校验不生成文件" if self.mode.get_active_id() == "verify" else "自动命名"
+        self.output_label.set_text(path or automatic)
+        self.output_label.set_tooltip_text(path)
+
+    def chooser(self, title, action):
+        dialog = Gtk.FileChooserDialog(title=title, transient_for=self.window, action=action)
+        dialog.add_button("取消", Gtk.ResponseType.CANCEL)
+        dialog.add_button("确定", Gtk.ResponseType.ACCEPT)
+        return dialog
+
+    def choose_input(self, _button, folder):
+        action = Gtk.FileChooserAction.SELECT_FOLDER if folder else Gtk.FileChooserAction.OPEN
+        dialog = self.chooser("选择输入文件或文件夹", action)
+        try:
+            dialog.set_select_multiple(True)
+            mode = self.mode.get_active_id()
+            if mode != "pack":
+                extension = "en3" if mode in ("migrate", "recover") else "bfq"
+                file_filter = Gtk.FileFilter()
+                file_filter.set_name(extension.upper())
+                file_filter.add_pattern("*." + extension)
+                file_filter.add_pattern("*." + extension.upper())
+                dialog.add_filter(file_filter)
+            if dialog.run() == Gtk.ResponseType.ACCEPT:
+                self.set_inputs(dialog.get_filenames())
+        finally:
+            dialog.destroy()
+
+    def choose_output(self, *_):
+        dialog = self.chooser("选择输出位置", Gtk.FileChooserAction.SAVE)
+        try:
+            dialog.set_current_folder(os.path.dirname(self.paths[0]))
+            if self.destination:
+                dialog.set_current_folder(os.path.dirname(self.destination))
+                dialog.set_current_name(os.path.basename(self.destination))
+            if dialog.run() == Gtk.ResponseType.ACCEPT:
+                self.set_output(dialog.get_filename())
+        finally:
+            dialog.destroy()
+
+    def drop(self, _window, context, _x, _y, selection, _info, time):
+        paths = [Gio.File.new_for_uri(uri).get_path() for uri in selection.get_uris() or []]
+        paths = [path for path in paths if path]
+        accepted = bool(paths) and self.cancel_file is None
+        if accepted:
+            self.set_inputs(paths)
+        Gtk.drag_finish(context, accepted, False, time)
+
+    def set_busy(self, busy):
+        self.form.set_sensitive(not busy)
+        self.execute.set_sensitive(not busy)
+        self.cancel.set_sensitive(busy)
+
+    def append_log(self, text):
+        buffer = self.log.get_buffer()
+        buffer.insert(buffer.get_end_iter(), text + "\n")
+        return False
+
+    def set_progress(self, percent, label):
+        self.progress.set_fraction(percent / 100)
+        self.progress.set_text(label)
+        return False
+
+    def run_requests(self, *_):
+        mode = self.mode.get_active_id()
+        password = self.password.get_text()
+        new_password = self.new_password.get_text() if mode == "migrate" else None
+        self.log.get_buffer().set_text("")
+        if not self.paths or not password or (mode == "migrate" and not new_password):
+            self.append_log("请选择输入并填写口令。")
+            return
+        if mode in ("pack", "migrate") and (new_password or password) != self.confirmation.get_text():
+            self.append_log("两次输入的口令不一致。")
+            return
+        request = dict(operation=mode, password=password, newPassword=new_password,
+                       output=self.destination, compress=mode == "pack" and self.compress.get_active(),
+                       renameExisting=self.rename.get_active())
+        scratch = tempfile.TemporaryDirectory(prefix="guanhai-bafen-")
+        self.cancel_file = os.path.join(scratch.name, "cancel")
+        self.set_busy(True)
+        for entry in (self.password, self.new_password, self.confirmation):
+            entry.set_text("")
+        worker = threading.Thread(target=self.process_files, args=(request, self.paths[:], scratch))
+        try:
+            worker.start()
+        except RuntimeError as error:
+            self.append_log(str(error))
+            self.finish(scratch)
+
+    def process_files(self, request, paths, scratch):
+        succeeded, failed = 0, 0
+        try:
+            for path in paths:
+                if os.path.exists(self.cancel_file):
+                    self.idle_log("操作已取消。")
+                    break
+                name = os.path.basename(path)
+                GLib.idle_add(self.set_progress, 0, "正在处理 " + name)
+                request["input"] = path
+                try:
+                    result = self.process_file(request, name)
+                    self.idle_log("{} · {}".format(name, result))
+                    succeeded += 1
+                except (OSError, ValueError) as error:
+                    self.idle_log("{} · {}".format(name, error))
+                    failed += 1
+            self.idle_log("处理结束。成功 {} 项，失败 {} 项。".format(succeeded, failed))
+        finally:
+            GLib.idle_add(self.finish, scratch)
+
+    def idle_log(self, text):
+        GLib.idle_add(self.append_log, text)
+
+    def process_file(self, request, name):
+        command = [CORE, "request", "--cancel-file", self.cancel_file]
+        result = None
+        with subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL) as child:
+            with child.stdin:
+                child.stdin.write(json.dumps(request, ensure_ascii=False).encode("utf-8"))
+            for line in child.stdout:
+                event = json.loads(line.decode("utf-8"))
+                kind = event.get("type")
+                if kind == "progress":
+                    percent = event["percent"]
+                    GLib.idle_add(self.set_progress, percent, "{} · {}%".format(name, percent))
+                elif kind == "result":
+                    result = "校验通过" if request["operation"] == "verify" else event["output"]
+                elif kind == "error":
+                    result = event["message"]
+            if child.wait() != 0 or result is None:
+                raise ValueError(result or "任务异常退出")
+        return result
+
+    def cancel_request(self, *_):
+        if self.cancel_file is not None:
+            with open(self.cancel_file, "ab"):
+                pass
+            self.cancel.set_sensitive(False)
+
+    def close(self, *_):
+        if self.cancel_file is None:
+            return False
+        self.cancel_request()
+        self.closing = True
+        return True
+
+    def finish(self, scratch):
+        scratch.cleanup()
+        self.cancel_file = None
+        self.set_busy(False)
+        if self.closing:
+            self.window.destroy()
+        return False
+
+    def destroy(self, *_):
+        self.window = None
+
+
+if __name__ == "__main__":
+    GLib.set_prgname(APP_ID)
+    GLib.set_application_name("观海·八分")
+    Gtk.Window.set_default_icon_name(APP_ID)
+    raise SystemExit(Desktop().run(None))
