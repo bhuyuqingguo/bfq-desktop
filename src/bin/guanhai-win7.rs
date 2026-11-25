@@ -1,7 +1,11 @@
 #![windows_subsystem = "windows"]
 
 #[cfg(windows)]
+mod guanhai_win7_shell;
+
+#[cfg(windows)]
 mod win7ui {
+    use super::guanhai_win7_shell as shell;
 
     use en3_recovery::bundle::{decrypt_path_monitored, encrypt_prepared_monitored, prepare_input};
     use en3_recovery::modern::{choose_output, verify_file_monitored};
@@ -17,7 +21,7 @@ mod win7ui {
     use winapi::shared::basetsd::LONG_PTR;
     use winapi::shared::minwindef::*;
     use winapi::shared::windef::{HBRUSH, HDC, HGDIOBJ, HMENU, HWND};
-    use winapi::um::commctrl::{PBM_SETPOS, PBM_SETRANGE32};
+    use winapi::um::commctrl::{ICC_PROGRESS_CLASS, INITCOMMONCONTROLSEX, InitCommonControlsEx, PBM_SETPOS, PBM_SETRANGE32};
     use winapi::um::shellapi::HDROP;
     use winapi::um::commdlg::*;
     use winapi::um::libloaderapi::GetModuleHandleW;
@@ -498,8 +502,12 @@ mod win7ui {
                 return 0;
             }
             WM_DESTROY => {
-                let app = Box::from_raw(GetWindowLongPtrW(window, GWLP_USERDATA) as *mut App);
-                DeleteObject(app.background as HGDIOBJ);
+                shell::clear_window_identity(window);
+                let app = GetWindowLongPtrW(window, GWLP_USERDATA) as *mut App;
+                if !app.is_null() {
+                    let app = Box::from_raw(app);
+                    DeleteObject(app.background as HGDIOBJ);
+                }
                 PostQuitMessage(0);
                 return 0;
             }
@@ -790,10 +798,34 @@ mod win7ui {
         });
     }
 
-    fn main() {
+    pub(super) fn main() -> io::Result<()> {
+        let _com = shell::ComApartment::initialize()?;
+        let argument = std::env::args_os().nth(1);
+        if argument.as_deref().is_some_and(|arg| arg == "--install" || arg == "--repair-shortcuts") {
+            let repair = argument.as_deref().is_some_and(|arg| arg == "--repair-shortcuts");
+            let installed = shell::install(repair)?;
+            std::process::Command::new(installed).spawn()?;
+            return Ok(());
+        }
+
+        let class_name = wide(CLASS_NAME);
+        let Some(_single_instance) = shell::SingleInstance::acquire(&class_name)? else {
+            return Ok(());
+        };
+        shell::set_process_identity()?;
         unsafe {
+            let controls = INITCOMMONCONTROLSEX {
+                dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as DWORD,
+                dwICC: ICC_PROGRESS_CLASS,
+            };
+            if InitCommonControlsEx(&controls) == FALSE {
+                return Err(io::Error::last_os_error());
+            }
             let instance = GetModuleHandleW(ptr::null());
-            let class_name = wide(CLASS_NAME);
+            let icon = LoadIconW(instance, MAKEINTRESOURCEW(1));
+            if icon.is_null() {
+                return Err(io::Error::last_os_error());
+            }
             let class = WNDCLASSEXW {
                 cbSize: std::mem::size_of::<WNDCLASSEXW>() as UINT,
                 style: CS_HREDRAW | CS_VREDRAW,
@@ -801,15 +833,15 @@ mod win7ui {
                 cbClsExtra: 0,
                 cbWndExtra: 0,
                 hInstance: instance,
-                hIcon: LoadIconW(ptr::null_mut(), IDI_APPLICATION),
+                hIcon: icon,
                 hCursor: LoadCursorW(ptr::null_mut(), IDC_ARROW),
                 hbrBackground: (COLOR_WINDOW + 1) as HBRUSH,
                 lpszMenuName: ptr::null(),
                 lpszClassName: class_name.as_ptr(),
-                hIconSm: LoadIconW(ptr::null_mut(), IDI_APPLICATION),
+                hIconSm: icon,
             };
             if RegisterClassExW(&class) == 0 {
-                return;
+                return Err(io::Error::last_os_error());
             }
             let title = wide(WINDOW_TITLE);
             let window = CreateWindowExW(
@@ -827,7 +859,11 @@ mod win7ui {
                 ptr::null_mut(),
             );
             if window.is_null() {
-                return;
+                return Err(io::Error::last_os_error());
+            }
+            if let Err(error) = shell::set_window_identity(window) {
+                DestroyWindow(window);
+                return Err(error);
             }
             ShowWindow(window, SW_SHOW);
             UpdateWindow(window);
@@ -843,7 +879,14 @@ mod win7ui {
 
 #[cfg(windows)]
 fn main() {
-    win7ui::main();
+    if let Err(error) = win7ui::main() {
+        use std::ptr;
+        use winapi::um::winuser::{MB_ICONERROR, MB_OK, MessageBoxW};
+        let title = "观海·八分".encode_utf16().chain([0]).collect::<Vec<_>>();
+        let message = format!("启动或安装失败：{error}").encode_utf16().chain([0]).collect::<Vec<_>>();
+        unsafe { MessageBoxW(ptr::null_mut(), message.as_ptr(), title.as_ptr(), MB_OK | MB_ICONERROR) };
+        std::process::exit(1);
+    }
 }
 
 #[cfg(not(windows))]
