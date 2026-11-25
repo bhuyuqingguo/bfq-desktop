@@ -6,7 +6,7 @@ use en3_recovery::modern::{choose_output, verify_file_monitored};
 use en3_recovery::recover_file_monitored;
 use std::ffi::OsString;
 use std::io;
-use std::os::windows::ffi::OsStrExt;
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::sync::Arc;
@@ -14,10 +14,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use winapi::shared::basetsd::LONG_PTR;
 use winapi::shared::minwindef::*;
-use winapi::shared::windef::{HBRUSH, HDC, HDROP, HGDIOBJ, HWND};
+use winapi::shared::windef::{HBRUSH, HDC, HGDIOBJ, HMENU, HWND};
+use winapi::um::commctrl::{PBM_SETPOS, PBM_SETRANGE32};
+use winapi::um::shellapi::HDROP;
 use winapi::um::commdlg::*;
 use winapi::um::libloaderapi::GetModuleHandleW;
 use winapi::um::shellapi::*;
+use winapi::um::shlobj::{BIF_RETURNONLYFSDIRS, BROWSEINFOW, SHBrowseForFolderW, SHGetPathFromIDListW};
 use winapi::um::wingdi::{CreateSolidBrush, DeleteObject, RGB, SetBkMode, TRANSPARENT};
 use winapi::um::winuser::*;
 
@@ -43,6 +46,7 @@ const IDC_OP_PACK: i32 = 114;
 const IDC_OP_UNPACK: i32 = 115;
 const IDC_OP_VERIFY: i32 = 116;
 const IDC_OP_RECOVER: i32 = 117;
+const BST_CHECKED_U: UINT = BST_CHECKED as UINT;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Operation {
@@ -398,8 +402,8 @@ fn create_controls(window: HWND, background: HBRUSH) -> Option<App> {
     }
     unsafe {
         DragAcceptFiles(window, TRUE);
-        CheckDlgButton(window, IDC_OP_PACK, BST_CHECKED);
-        CheckDlgButton(window, IDC_RENAME, BST_CHECKED);
+        CheckDlgButton(window, IDC_OP_PACK, BST_CHECKED_U);
+        CheckDlgButton(window, IDC_RENAME, BST_CHECKED_U);
         SendMessageW(progress, PBM_SETRANGE32, 0, 100);
         SendMessageW(progress, PBM_SETPOS, 0, 0);
         EnableWindow(cancel, FALSE);
@@ -451,10 +455,10 @@ unsafe extern "system" fn window_proc(
                     IDC_INPUT_FOLDER => pick_input_folder(app),
                     IDC_OUTPUT_BROWSE => pick_output_file(app),
                     IDC_OP_PACK | IDC_OP_UNPACK | IDC_OP_VERIFY | IDC_OP_RECOVER => {
-                        CheckDlgButton(window, IDC_OP_PACK, if id == IDC_OP_PACK { BST_CHECKED } else { 0 });
-                        CheckDlgButton(window, IDC_OP_UNPACK, if id == IDC_OP_UNPACK { BST_CHECKED } else { 0 });
-                        CheckDlgButton(window, IDC_OP_VERIFY, if id == IDC_OP_VERIFY { BST_CHECKED } else { 0 });
-                        CheckDlgButton(window, IDC_OP_RECOVER, if id == IDC_OP_RECOVER { BST_CHECKED } else { 0 });
+                        CheckDlgButton(window, IDC_OP_PACK, if id == IDC_OP_PACK { BST_CHECKED_U } else { 0 });
+                        CheckDlgButton(window, IDC_OP_UNPACK, if id == IDC_OP_UNPACK { BST_CHECKED_U } else { 0 });
+                        CheckDlgButton(window, IDC_OP_VERIFY, if id == IDC_OP_VERIFY { BST_CHECKED_U } else { 0 });
+                        CheckDlgButton(window, IDC_OP_RECOVER, if id == IDC_OP_RECOVER { BST_CHECKED_U } else { 0 });
                     }
                     IDC_START => start_operation(window, app),
                     IDC_CANCEL => {
@@ -776,8 +780,8 @@ fn start_operation(window: HWND, app: &App) {
         return;
     }
 
-    let compress = unsafe { IsDlgButtonChecked(window, IDC_COMPRESS) } == BST_CHECKED;
-    let rename_existing = unsafe { IsDlgButtonChecked(window, IDC_RENAME) } == BST_CHECKED;
+    let compress = unsafe { IsDlgButtonChecked(window, IDC_COMPRESS) } == BST_CHECKED_U;
+    let rename_existing = unsafe { IsDlgButtonChecked(window, IDC_RENAME) } == BST_CHECKED_U;
     let shared = Arc::clone(&app.shared);
     let cancel_requested = Arc::clone(&app.cancel_requested);
     {

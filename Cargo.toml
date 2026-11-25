@@ -22,10 +22,12 @@ zip = { version = "2.4", default-features = false, features = ["deflate"] }
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.9", features = [
   "basetsd",
+  "commctrl",
   "commdlg",
   "libloaderapi",
   "minwindef",
   "shellapi",
+  "shlobj",
   "windef",
   "wingdi",
   "winuser",
