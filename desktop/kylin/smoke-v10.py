@@ -10,7 +10,7 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import GLib, Gtk
 
-module = runpy.run_path("/usr/bin/guanhai-bafen")
+module = runpy.run_path("/usr/bin/guanhai-bafen", run_name="guanhai_bafen_smoke")
 GLib.set_prgname(module["APP_ID"])
 Gtk.Window.set_default_icon_name(module["APP_ID"])
 app = module["Desktop"]()
