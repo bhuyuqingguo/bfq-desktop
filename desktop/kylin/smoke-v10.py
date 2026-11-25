@@ -1,11 +1,13 @@
 """Exercise the installed GUI and static core on the original V10 baseline."""
-import os
 import runpy
 import subprocess
 import tempfile
 import time
 from pathlib import Path
 
+import gi
+
+gi.require_version('Gtk', '3.0')
 from gi.repository import GLib, Gtk
 
 module = runpy.run_path("/usr/bin/guanhai-bafen")
@@ -71,11 +73,4 @@ with tempfile.TemporaryDirectory(prefix="观海 八分 ") as scratch:
 window.close()
 process_events()
 assert app.window is None
-restarted = subprocess.Popen(["/usr/bin/guanhai-bafen"])
-try:
-    subprocess.check_call(["timeout", "15s", "xdotool", "search", "--onlyvisible", "--sync",
-                           "--class", module["APP_ID"]])
-finally:
-    restarted.terminate()
-    restarted.wait()
-print("GTK launch, icon, single instance, round trip, and relaunch passed")
+print("GTK launch, icon, single instance, round trip, and clean close passed")

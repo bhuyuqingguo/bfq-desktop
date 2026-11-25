@@ -38,6 +38,12 @@ jobs:
             runuser -u smoke -- dbus-run-session -- xvfb-run -a bash -ec "
               openbox >/tmp/guanhai-openbox.log 2>&1 &
               timeout 85s python3 desktop/kylin/smoke-v10.py
+              /usr/bin/guanhai-bafen &
+              app_pid=\$!
+              window=\$(timeout 15s xdotool search --onlyvisible --sync --class com.guanhai.bafen)
+              xdotool windowfocus --sync \"\$window\" key alt+F4
+              timeout 10s tail --pid=\"\$app_pid\" -f /dev/null
+              wait \"\$app_pid\"
             "
           '
       - uses: actions/upload-artifact@v7
