@@ -20,7 +20,7 @@ jobs:
         run: |
           (cd original && sha256sum -c guanhai-bafen-kylin-v10-arm64.sha256)
           name=guanhai-bafen-kylin-v10-arm64-portable
-          mkdir -p release
+          mkdir -p release stage
           dpkg-deb -x original/guanhai-bafen-kylin-v10-arm64.deb "stage/$name"
           install -m 755 desktop/kylin/guanhai-bafen-v10 "stage/$name/usr/bin/guanhai-bafen"
           rm "stage/$name/usr/share/applications/com.guanhai.bafen.desktop"
