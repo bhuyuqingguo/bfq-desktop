@@ -1,0 +1,56 @@
+name: Kylin V10 ARM64
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/kylin-v10-arm64]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Build shared frontend for WebKitGTK 4.0
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run build -- --mode kylin
+          grep -q 'messageHandlers.guanhai' dist/assets/*.js
+      - name: Build and verify on Ubuntu 20.04 ARM64
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src ubuntu:20.04 bash -euxo pipefail -c '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              build-essential ca-certificates curl desktop-file-utils \
+              dbus-x11 fonts-noto-cjk xauth xdotool x11-utils xvfb openbox \
+              gir1.2-gtk-3.0 gir1.2-webkit2-4.0 python3-gi
+            curl --proto "=https" --tlsv1.2 -fsSL https://sh.rustup.rs -o /tmp/rustup.sh
+            sh /tmp/rustup.sh -y --profile minimal
+            . /root/.cargo/env
+            cargo test --locked
+            bash desktop/kylin/package.sh
+            apt-get install -y ./desktop/release/guanhai-bafen-kylin-v10-arm64.deb
+            useradd -m smoke
+            runuser -u smoke -- dbus-run-session -- xvfb-run -a bash -ec "
+              openbox >/tmp/guanhai-openbox.log 2>&1 &
+              /usr/bin/guanhai-bafen &
+              export APP_PID=\$!
+              timeout 75s bash desktop/kylin/smoke.sh
+            "
+            cd desktop/release
+            sha256sum guanhai-bafen-kylin-v10-arm64.deb > guanhai-bafen-kylin-v10-arm64.sha256
+          '
+      - uses: actions/upload-artifact@v7
+        with:
+          name: guanhai-bafen-kylin-v10-arm64
+          path: desktop/release/*
+          if-no-files-found: error

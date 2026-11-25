@@ -1,8 +1,5 @@
 import "./style.css";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { invoke, listen, getCurrentWindow, open, save } from "./platform";
 
 type Mode = "pack" | "unpack" | "verify" | "migrate" | "recover";
 type Theme = "deep" | "day" | "night";

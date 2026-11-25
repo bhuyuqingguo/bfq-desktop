@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=观海·八分
+Comment=本地文件封装、校验与恢复
+Exec=/usr/bin/guanhai-bafen
+Icon=com.guanhai.bafen
+StartupWMClass=com.guanhai.bafen
+Categories=Utility;
+Terminal=false

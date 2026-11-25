@@ -1,0 +1,224 @@
+#!/usr/bin/python3
+"""GTK host for the shared desktop interface on Kylin V10."""
+import json
+import mimetypes
+import subprocess
+import tempfile
+import threading
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("WebKit2", "4.0")
+from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2
+
+APP_ID = "com.guanhai.bafen"
+HOME_URI = "guanhai://desktop/index.html"
+ROOT = Path("/usr/lib/guanhai-bafen")
+TITLE = "观海·八分｜文件封装与恢复"
+
+
+class Desktop(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id=APP_ID)
+        self.window = None
+        self.cancel_file = None
+        self.closing = False
+
+    def do_activate(self):
+        if self.window:
+            self.window.present()
+            return
+
+        self.window = Gtk.ApplicationWindow(application=self, title=TITLE)
+        self.window.set_wmclass(APP_ID, APP_ID)
+        self.window.set_icon_name(APP_ID)
+        self.window.set_default_size(1040, 720)
+        self.window.set_size_request(860, 620)
+        self.window.connect("delete-event", self.close_window)
+        self.window.connect("destroy", self.window_destroyed)
+
+        context = WebKit2.WebContext.get_default()
+        context.register_uri_scheme("guanhai", self.serve)
+        security = context.get_security_manager()
+        security.register_uri_scheme_as_secure("guanhai")
+        security.register_uri_scheme_as_cors_enabled("guanhai")
+
+        manager = WebKit2.UserContentManager()
+        manager.register_script_message_handler("guanhai")
+        manager.connect("script-message-received::guanhai", self.receive)
+        self.view = WebKit2.WebView.new_with_user_content_manager(manager)
+        self.view.get_settings().set_enable_html5_database(False)
+        self.view.connect("decide-policy", self.navigation)
+        self.view.drag_dest_set(
+            Gtk.DestDefaults.ALL, [Gtk.TargetEntry.new("text/uri-list", 0, 0)], Gdk.DragAction.COPY
+        )
+        self.view.connect("drag-data-received", self.drop_files)
+        self.window.add(self.view)
+        self.view.load_uri(HOME_URI)
+        self.window.show_all()
+
+    def window_destroyed(self, *_):
+        self.window = None
+
+    def close_window(self, *_):
+        if self.cancel_file is None:
+            return False
+        self.cancel_file.touch()
+        self.closing = True
+        return True
+
+    def serve(self, request, *_):
+        try:
+            uri = urlsplit(request.get_uri())
+            static = (ROOT / "ui").resolve()
+            path = (static / unquote(uri.path).lstrip("/")).resolve()
+            if uri.netloc != "desktop" or static not in path.parents:
+                raise FileNotFoundError(uri.path)
+            data = path.read_bytes()
+            mime = "text/javascript" if path.suffix == ".js" else mimetypes.guess_type(str(path))[0]
+            stream = Gio.MemoryInputStream.new_from_bytes(GLib.Bytes.new(data))
+            request.finish(stream, len(data), mime or "application/octet-stream")
+        except (OSError, ValueError):
+            request.finish_error(GLib.Error.new_literal(
+                Gio.io_error_quark(), "Resource missing", Gio.IOErrorEnum.NOT_FOUND
+            ))
+
+    def navigation(self, _view, decision, choice):
+        if choice == WebKit2.PolicyDecisionType.RESPONSE:
+            return False
+        if choice == WebKit2.PolicyDecisionType.NAVIGATION_ACTION:
+            if decision.get_navigation_action().get_request().get_uri() == HOME_URI:
+                return False
+        decision.ignore()
+        return True
+
+    def dispatch(self, function, *values):
+        if self.window:
+            args = ", ".join(json.dumps(value, ensure_ascii=True) for value in values)
+            self.view.run_javascript(f"window.{function}({args})", None, None, None)
+        return False
+
+    def drop_files(self, _view, context, _x, _y, selection, _info, time):
+        paths = [Gio.File.new_for_uri(uri).get_path() for uri in selection.get_uris() or []]
+        paths = [path for path in paths if path is not None]
+        if paths and self.cancel_file is None:
+            self.dispatch("guanhaiEvent", "drag-drop", {"type": "drop", "paths": paths})
+        Gtk.drag_finish(context, bool(paths), False, time)
+        self.view.stop_emission_by_name("drag-data-received")
+
+    def receive(self, _manager, result):
+        if self.view.get_uri() != HOME_URI:
+            return
+        try:
+            call = json.loads(result.get_js_value().to_string())
+            call_id, command = call["id"], call["command"]
+            if type(call_id) is not int:
+                return
+        except (AttributeError, TypeError, KeyError, ValueError):
+            return
+
+        args = call.get("args") or {}
+        try:
+            if command == "execute_operation":
+                if self.cancel_file is not None:
+                    raise ValueError("已有任务正在执行")
+                self.start_operation(call_id, args["request"])
+                return
+            if command == "cancel_operation":
+                if self.cancel_file is not None:
+                    self.cancel_file.touch()
+                value = None
+            elif command in ("open", "save"):
+                value = self.choose_file(command, args)
+            else:
+                raise ValueError("不支持的操作")
+            self.dispatch("guanhaiReply", call_id, value, False)
+        except (OSError, TypeError, KeyError, ValueError) as error:
+            self.dispatch("guanhaiReply", call_id, str(error), True)
+
+    def choose_file(self, command, args):
+        saving = command == "save"
+        action = Gtk.FileChooserAction.SAVE if saving else Gtk.FileChooserAction.OPEN
+        if args.get("directory"):
+            action = Gtk.FileChooserAction.SELECT_FOLDER
+
+        dialog = Gtk.FileChooserDialog(
+            title="选择输出位置" if saving else "选择输入文件或文件夹",
+            transient_for=self.window, modal=True, action=action,
+        )
+        try:
+            dialog.add_button("取消", Gtk.ResponseType.CANCEL)
+            dialog.add_button("保存" if saving else "选择", Gtk.ResponseType.ACCEPT)
+            dialog.set_select_multiple(bool(args.get("multiple")))
+            if saving:
+                path = Path(args.get("defaultPath") or "recovered.bin")
+                if path.is_absolute() and path.parent.is_dir():
+                    dialog.set_current_folder(str(path.parent))
+                dialog.set_current_name(path.name)
+            for spec in args.get("filters", []):
+                filter_rule = Gtk.FileFilter()
+                filter_rule.set_name(spec["name"])
+                for ext in spec["extensions"]:
+                    filter_rule.add_pattern("*." + ext.lower())
+                    filter_rule.add_pattern("*." + ext.upper())
+                dialog.add_filter(filter_rule)
+            if dialog.run() != Gtk.ResponseType.ACCEPT:
+                return None
+            return dialog.get_filename() if saving else dialog.get_filenames()
+        finally:
+            dialog.destroy()
+
+    def start_operation(self, call_id, request):
+        scratch = tempfile.TemporaryDirectory(prefix="guanhai-bafen-")
+        self.cancel_file = Path(scratch.name) / "cancel"
+        worker = threading.Thread(target=self.run_operation, args=(call_id, request, scratch))
+        try:
+            worker.start()
+        except RuntimeError:
+            scratch.cleanup()
+            self.cancel_file = None
+            raise ValueError("任务无法启动")
+
+    def run_operation(self, call_id, request, scratch):
+        value, failed = "任务未返回结果", True
+        try:
+            with subprocess.Popen(
+                [str(ROOT / "guanhai-core"), "request", "--cancel-file", str(self.cancel_file)],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, encoding="utf-8",
+            ) as child:
+                child.stdin.write(json.dumps(request, ensure_ascii=False))
+                child.stdin.close()
+                for line in child.stdout:
+                    event = json.loads(line)
+                    kind = event.get("type")
+                    if kind == "progress":
+                        GLib.idle_add(self.dispatch, "guanhaiEvent", "operation-progress", event)
+                    elif kind == "result":
+                        value, failed = event, False
+                    elif kind == "error":
+                        value, failed = event.get("message", value), True
+                if child.wait() != 0 and not failed:
+                    value, failed = "任务异常退出", True
+        except (OSError, ValueError) as error:
+            value, failed = str(error), True
+        GLib.idle_add(self.finish_operation, call_id, value, failed, scratch)
+
+    def finish_operation(self, call_id, value, failed, scratch):
+        scratch.cleanup()
+        self.cancel_file = None
+        if self.closing:
+            self.window.destroy()
+        else:
+            self.dispatch("guanhaiReply", call_id, value, failed)
+        return False
+
+
+if __name__ == "__main__":
+    GLib.set_prgname(APP_ID)
+    GLib.set_application_name("观海·八分")
+    Gtk.Window.set_default_icon_name(APP_ID)
+    raise SystemExit(Desktop().run(None))
