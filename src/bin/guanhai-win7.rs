@@ -20,7 +20,6 @@ use winapi::um::shellapi::HDROP;
 use winapi::um::commdlg::*;
 use winapi::um::libloaderapi::GetModuleHandleW;
 use winapi::um::shellapi::*;
-use winapi::um::shlobj::{BIF_RETURNONLYFSDIRS, BROWSEINFOW, SHBrowseForFolderW, SHGetPathFromIDListW};
 use winapi::um::wingdi::{CreateSolidBrush, DeleteObject, RGB, SetBkMode, TRANSPARENT};
 use winapi::um::winuser::*;
 
@@ -31,7 +30,6 @@ const MAX_PATH_LEN: usize = 260;
 
 const IDC_INPUT: i32 = 101;
 const IDC_INPUT_FILE: i32 = 102;
-const IDC_INPUT_FOLDER: i32 = 103;
 const IDC_OUTPUT: i32 = 104;
 const IDC_OUTPUT_BROWSE: i32 = 105;
 const IDC_PASSWORD: i32 = 106;
@@ -241,17 +239,6 @@ fn create_controls(window: HWND, background: HBRUSH) -> Option<App> {
         window,
         IDC_INPUT_FILE,
     );
-    let input_folder = create_window(
-        "BUTTON",
-        "选文件夹",
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
-        590,
-        184,
-        70,
-        27,
-        window,
-        IDC_INPUT_FOLDER,
-    );
     create_window(
         "STATIC",
         "输出（可留空自动命名；文件夹恢复请填写目标文件夹名称）",
@@ -385,7 +372,6 @@ fn create_controls(window: HWND, background: HBRUSH) -> Option<App> {
         op_recover,
         input,
         input_file,
-        input_folder,
         output,
         output_browse,
         password,
@@ -452,7 +438,6 @@ unsafe extern "system" fn window_proc(
             if notification == BN_CLICKED {
                 match id {
                     IDC_INPUT_FILE => pick_input_file(app),
-                    IDC_INPUT_FOLDER => pick_input_folder(app),
                     IDC_OUTPUT_BROWSE => pick_output_file(app),
                     IDC_OP_PACK | IDC_OP_UNPACK | IDC_OP_VERIFY | IDC_OP_RECOVER => {
                         CheckDlgButton(window, IDC_OP_PACK, if id == IDC_OP_PACK { BST_CHECKED_U } else { 0 });
@@ -471,7 +456,7 @@ unsafe extern "system" fn window_proc(
         }
         WM_TIMER => {
             let app = &mut *(GetWindowLongPtrW(window, GWLP_USERDATA) as *mut App);
-            let state = app.lock();
+            let mut state = app.lock();
             SendMessageW(app.progress, PBM_SETPOS, state.progress as WPARAM, 0);
             if let Some(result) = state.result.take() {
                 drop(state);
@@ -518,16 +503,16 @@ unsafe extern "system" fn window_proc(
         }
         _ => {}
     }
-    DefWindowProcW(window, message, wparam, lparam)
+    unsafe { DefWindowProcW(window, message, wparam, lparam) }
 }
 
 fn selected_operation(window: HWND) -> Operation {
     unsafe {
-        if IsDlgButtonChecked(window, IDC_OP_UNPACK) == BST_CHECKED {
+        if IsDlgButtonChecked(window, IDC_OP_UNPACK) == BST_CHECKED_U {
             Operation::Unpack
-        } else if IsDlgButtonChecked(window, IDC_OP_VERIFY) == BST_CHECKED {
+        } else if IsDlgButtonChecked(window, IDC_OP_VERIFY) == BST_CHECKED_U {
             Operation::Verify
-        } else if IsDlgButtonChecked(window, IDC_OP_RECOVER) == BST_CHECKED {
+        } else if IsDlgButtonChecked(window, IDC_OP_RECOVER) == BST_CHECKED_U {
             Operation::Recover
         } else {
             Operation::Pack
@@ -539,27 +524,6 @@ fn pick_input_file(app: &App) {
     let filter = wide("可处理文件 (*.bfq;*.en3;*.*)\0*.bfq;*.en3;*\0所有文件 (*.*)\0*.*\0\0");
     if let Some(path) = open_dialog(ptr::null_mut(), "选择输入文件", &filter, true) {
         set_text(app.input, &path.to_string_lossy());
-    }
-}
-
-fn pick_input_folder(app: &App) {
-    let title = wide("选择输入文件夹");
-    let mut buffer = vec![0_u16; MAX_PATH_LEN];
-    let info = BROWSEINFOW {
-        hwndOwner: ptr::null_mut(),
-        pidlRoot: ptr::null_mut(),
-        pszDisplayName: buffer.as_mut_ptr(),
-        lpszTitle: title.as_ptr(),
-        ulFlags: BIF_RETURNONLYFSDIRS,
-        lpfn: None,
-        lParam: 0,
-        iImage: 0,
-    };
-    unsafe {
-        let item = SHBrowseForFolderW(&info);
-        if !item.is_null() && SHGetPathFromIDListW(item, buffer.as_mut_ptr()) != FALSE {
-            set_text(app.input, &from_wide(&buffer));
-        }
     }
 }
 
@@ -753,30 +717,36 @@ fn start_operation(window: HWND, app: &App) {
     let password = get_text(app.password);
     let confirm = get_text(app.confirm);
     if !input.is_file() && !input.is_dir() {
-        MessageBoxW(
+        unsafe {
+            MessageBoxW(
             window,
             wide("请选择存在的文件或文件夹。").as_ptr(),
             wide("观海·八分").as_ptr(),
             MB_OK | MB_ICONERROR,
         );
+        }
         return;
     }
     if password.is_empty() {
-        MessageBoxW(
+        unsafe {
+            MessageBoxW(
             window,
             wide("请输入口令。").as_ptr(),
             wide("观海·八分").as_ptr(),
             MB_OK | MB_ICONERROR,
         );
+        }
         return;
     }
     if operation == Operation::Pack && password != confirm {
-        MessageBoxW(
+        unsafe {
+            MessageBoxW(
             window,
             wide("两次输入的口令不一致。").as_ptr(),
             wide("观海·八分").as_ptr(),
             MB_OK | MB_ICONERROR,
         );
+        }
         return;
     }
 
@@ -795,8 +765,10 @@ fn start_operation(window: HWND, app: &App) {
     set_text(app.status, "正在处理，请稍候…");
     set_text(app.password, "");
     set_text(app.confirm, "");
-    SendMessageW(app.progress, PBM_SETPOS, 0, 0);
-    SetTimer(window, TIMER_ID, 80, None);
+    unsafe {
+        SendMessageW(app.progress, PBM_SETPOS, 0, 0);
+        SetTimer(window, TIMER_ID, 80, None);
+    }
 
     std::thread::spawn(move || {
         let result = run_operation(
