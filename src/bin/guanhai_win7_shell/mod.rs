@@ -223,7 +223,7 @@ fn known_folder(folder_id: &GUID) -> io::Result<PathBuf> {
 }
 
 fn installed_executable() -> io::Result<PathBuf> {
-    Ok(known_folder(&FOLDERID_LocalAppData)?.join("Programs/GuanhaiBafen").join(EXE_NAME))
+    Ok(known_folder(&FOLDERID_LocalAppData)?.join("Programs").join("GuanhaiBafen").join(EXE_NAME))
 }
 
 fn save_shortcut(shortcut: &Path, executable: &Path, directory: &Path) -> io::Result<()> {
