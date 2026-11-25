@@ -1,0 +1,36 @@
+name: Windows 7 compatibility build
+
+on:
+  push:
+    branches: [win7-compat]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install nightly Rust with build-std support
+        run: |
+          rustup toolchain install nightly --profile minimal --component rust-src
+
+      - name: Build Windows 7 compatible applications
+        run: cargo +nightly build --release --target x86_64-win7-windows-msvc --bin en3-recovery --bin guanhai-win7 -Z build-std=std,panic_abort
+
+      - name: Collect Windows 7 artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release -Force | Out-Null
+          Copy-Item "target/x86_64-win7-windows-msvc/release/en3-recovery.exe" "release/guanhai-core-win7-x64.exe"
+          Copy-Item "target/x86_64-win7-windows-msvc/release/guanhai-win7.exe" "release/guanhai-bafen-win7-x64.exe"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: guanhai-bafen-win7-x64
+          path: release/*
+          if-no-files-found: error
+          retention-days: 14

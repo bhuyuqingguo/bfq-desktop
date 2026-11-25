@@ -19,6 +19,20 @@ walkdir = "2"
 zeroize = "1.9.2"
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3.9", features = [
+  "basetsd",
+  "commctrl",
+  "commdlg",
+  "libloaderapi",
+  "minwindef",
+  "shellapi",
+  "shlobj",
+  "windef",
+  "wingdi",
+  "winuser",
+] }
+
 [profile.release]
 opt-level = "z"
 lto = true
