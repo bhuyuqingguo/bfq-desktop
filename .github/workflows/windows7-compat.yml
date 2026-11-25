@@ -19,13 +19,15 @@ jobs:
           rustup toolchain install nightly --profile minimal --component rust-src
 
       - name: Build Windows 7 compatible applications
-        run: cargo +nightly build --locked --release --target x86_64-win7-windows-msvc --bin en3-recovery --bin guanhai-win7 -Z build-std=std,panic_abort
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+        run: cargo +nightly build --locked --release --target x86_64-win7-windows-msvc --bin guanhai-core --bin guanhai-win7 -Z build-std=std,panic_abort
 
       - name: Collect Windows 7 artifacts
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path release -Force | Out-Null
-          Copy-Item "target/x86_64-win7-windows-msvc/release/en3-recovery.exe" "release/guanhai-core-win7-x64.exe"
+          Copy-Item "target/x86_64-win7-windows-msvc/release/guanhai-core.exe" "release/guanhai-core-win7-x64.exe"
           Copy-Item "target/x86_64-win7-windows-msvc/release/guanhai-win7.exe" "release/guanhai-bafen-win7-x64.exe"
 
       - uses: actions/upload-artifact@v7

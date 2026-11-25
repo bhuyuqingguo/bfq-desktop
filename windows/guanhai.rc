@@ -1,0 +1,31 @@
+#pragma code_page(65001)
+
+1 ICON "desktop/src-tauri/icons/icon.ico"
+
+STRINGTABLE
+BEGIN
+    101 "观海·八分"
+END
+
+1 VERSIONINFO
+FILEVERSION 0,0,1,0
+PRODUCTVERSION 0,0,1,0
+FILEOS 0x00040004
+FILETYPE 1
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404B0"
+        BEGIN
+            VALUE "FileDescription", "观海·八分"
+            VALUE "ProductName", "观海·八分"
+            VALUE "OriginalFilename", "guanhai-bafen-win7-x64.exe"
+            VALUE "FileVersion", "0.0.1"
+            VALUE "ProductVersion", "0.0.1"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0804, 1200
+    END
+END
