@@ -23,7 +23,7 @@ const modeCopy: Record<Mode, { heading: string; action: string; password: string
   migrate: { heading: "选择旧 EN3 文件", action: "迁移到 BFQ", password: "旧 EN3 口令", accept: "旧 EN3 文件，可多选", title: "直接迁移旧文件", description: "从旧包直接转换为新包，不生成可读的中间文件。" },
   recover: { heading: "选择旧 EN3 文件", action: "恢复旧文件", password: "旧 EN3 口令", accept: "旧 EN3 文件，可多选", title: "旧格式只读恢复", description: "用于救回历史文件。建议恢复后重新封装为 BFQ。" },
 };
-let mode: Mode = "pack", selectedInputs: string[] = [], selectedOutput = "", running = false;
+let mode: Mode = "pack", selectedInputs: string[] = [], selectedOutput = "", selectedKeyfile = "", running = false;
 let appearance: Appearance = { theme: "deep", sound: true, motion: !window.matchMedia("(prefers-reduced-motion: reduce)").matches };
 function loadAppearance() { try { const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null") as Partial<Appearance> | null; if (saved) { if (["deep", "day", "night"].includes(saved.theme ?? "")) appearance.theme = saved.theme as Theme; if (typeof saved.sound === "boolean") appearance.sound = saved.sound; if (typeof saved.motion === "boolean") appearance.motion = saved.motion; } } catch { /* Preferences are optional. */ } }
 function applyAppearance() {
@@ -56,13 +56,18 @@ function validate(showError = false) {
   passwordStrength(); return !message;
 }
 function updateMode(next: Mode) {
-  if (running) return; mode = next; selectedInputs = []; selectedOutput = "";
+  if (running) return; mode = next; selectedInputs = []; selectedOutput = ""; selectedKeyfile = "";
   for (const button of modeButtons) { const active = button.dataset.mode === mode; button.classList.toggle("active", active); button.setAttribute("aria-selected", String(active)); }
   const copy = modeCopy[mode]; $("file-heading").textContent = copy.heading; $("operation-heading").textContent = mode === "migrate" ? "设置新旧口令" : "设置口令并执行";
   $("password-label").textContent = copy.password; execute.textContent = copy.action; $("format-title").textContent = copy.title; $("format-description").textContent = copy.description;
   $("new-password-group").hidden = mode !== "migrate"; $("confirm-group").hidden = !["pack", "migrate"].includes(mode); $("generate-password").hidden = !["pack", "migrate"].includes(mode);
-  $("pack-options").hidden = mode !== "pack"; $("strength-meter").hidden = !["pack", "migrate"].includes(mode); $("output-block").hidden = mode === "verify";
-  confirmPassword.value = ""; newPassword.value = ""; renderPaths(); validate();
+  $("pack-options").hidden = mode !== "pack"; $("strength-meter").hidden = !["pack", "migrate"].includes(mode); $("output-block").hidden = mode === "verify"; $("keyfile-group").hidden = mode === "recover";
+  confirmPassword.value = ""; newPassword.value = ""; renderKeyfile(); renderPaths(); validate();
+}
+function renderKeyfile() { $<HTMLInputElement>("keyfile").value = selectedKeyfile; $("keyfile").placeholder = selectedKeyfile ? "" : "不使用密钥文件"; }
+async function chooseKeyfile() {
+  const path = await open({ multiple: false, directory: false }) as string | null;
+  if (path) { selectedKeyfile = path; renderKeyfile(); }
 }
 function renderPaths() {
   const multiple = selectedInputs.length > 1, first = selectedInputs[0] ?? "";
@@ -91,7 +96,7 @@ async function runOperation() {
   for (let index = 0; index < selectedInputs.length; index++) {
     const input = selectedInputs[index]; $("progress-status").textContent = `第 ${index + 1}/${selectedInputs.length} 项 · ${basename(input)}`;
     try {
-      const response = await invoke<OperationResult>("execute_operation", { request: { operation: mode, input, password: password.value, newPassword: mode === "migrate" ? newPassword.value : null, output: selectedInputs.length === 1 ? selectedOutput || null : null, compress: $<HTMLInputElement>("compress").checked, renameExisting: $<HTMLInputElement>("rename-existing").checked } });
+      const response = await invoke<OperationResult>("execute_operation", { request: { operation: mode, input, password: password.value, newPassword: mode === "migrate" ? newPassword.value : null, output: selectedInputs.length === 1 ? selectedOutput || null : null, keyfile: selectedKeyfile || null, compress: $<HTMLInputElement>("compress").checked, renameExisting: $<HTMLInputElement>("rename-existing").checked } });
       succeeded.push(mode === "verify" ? `${basename(input)}：完整` : response.output);
     } catch (error) { const message = friendlyError(error); failed.push(`${basename(input)}：${message}`); if (message.includes("已取消")) { cancelled = true; break; } }
   }
@@ -103,6 +108,7 @@ function escapeHtml(value: string) { return value.replace(/[&<>"']/g, c => ({ "&
 function generatePassword() { const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%_-", random = new Uint32Array(24); crypto.getRandomValues(random); const value = Array.from(random, n => alphabet[n % alphabet.length]).join(""); if (mode === "migrate") newPassword.value = value; else password.value = value; confirmPassword.value = value; validate(); }
 for (const button of modeButtons) button.addEventListener("click", () => updateMode(button.dataset.mode as Mode));
 $("choose-input").addEventListener("click", () => void chooseInput()); $("choose-folder").addEventListener("click", () => void chooseInput(true));
+$("choose-keyfile").addEventListener("click", () => void chooseKeyfile()); $("clear-keyfile").addEventListener("click", () => { selectedKeyfile = ""; renderKeyfile(); });
 $("drop-zone").addEventListener("click", event => { if (!["choose-input", "choose-folder"].includes((event.target as HTMLElement).id) && !running) void chooseInput(); });
 $("drop-zone").addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") void chooseInput(); });
 $("choose-output").addEventListener("click", chooseOutput); execute.addEventListener("click", runOperation); $("generate-password").addEventListener("click", generatePassword);

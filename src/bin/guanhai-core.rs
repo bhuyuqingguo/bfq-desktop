@@ -1,5 +1,7 @@
 use en3_recovery::bundle::{decrypt_path_monitored, encrypt_prepared_monitored, prepare_input};
-use en3_recovery::modern::{FileInfo, choose_output, migrate_en3_monitored, verify_file_monitored};
+use en3_recovery::modern::{
+    FileInfo, choose_output, load_keyfile, migrate_en3_monitored, verify_file_monitored,
+};
 use en3_recovery::recover_file_monitored;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -12,6 +14,7 @@ use std::{
     process::ExitCode,
     time::{Duration, Instant},
 };
+use zeroize::Zeroizing;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -21,6 +24,7 @@ struct Request {
     password: String,
     new_password: Option<String>,
     output: Option<PathBuf>,
+    keyfile: Option<PathBuf>,
     #[serde(default)]
     compress: bool,
     #[serde(default)]
@@ -58,16 +62,19 @@ fn write_event(output: &mut impl Write, event: Value) -> io::Result<()> {
 }
 fn execute(
     request: &Request,
+    keyfile: Option<&Zeroizing<[u8; 32]>>,
     prepared: Option<en3_recovery::bundle::PreparedInput>,
     progress: impl FnMut(u64) -> io::Result<()>,
 ) -> en3_recovery::Result<FileInfo> {
     let output = request.output.as_deref();
+    let digest = keyfile.as_deref();
     match request.operation {
         Operation::Pack => encrypt_prepared_monitored(
             prepared
                 .ok_or_else(|| en3_recovery::En3Error::Format("Missing prepared input".into()))?,
             &request.input,
             &request.password,
+            digest,
             output,
             request.rename_existing,
             progress,
@@ -75,11 +82,12 @@ fn execute(
         Operation::Unpack => decrypt_path_monitored(
             &request.input,
             &request.password,
+            digest,
             output,
             request.rename_existing,
             progress,
         ),
-        Operation::Verify => verify_file_monitored(&request.input, &request.password, progress),
+        Operation::Verify => verify_file_monitored(&request.input, &request.password, digest, progress),
         Operation::Migrate => {
             let new_password = request
                 .new_password
@@ -94,6 +102,7 @@ fn execute(
                 &request.input,
                 &request.password,
                 new_password,
+                digest,
                 Some(&destination),
                 progress,
             )
@@ -114,6 +123,12 @@ fn friendly_error(message: &str) -> String {
         "操作已取消，未生成输出文件".into()
     } else if message.contains("Output already exists") {
         "目标文件已存在，未覆盖任何文件".into()
+    } else if message.contains("requires a key file") {
+        "此封装需要使用密钥文件，请选择密钥文件".into()
+    } else if message.contains("without a key file") {
+        "此封装未使用密钥文件，请留空密钥文件".into()
+    } else if message.contains("Key file is empty") {
+        "密钥文件为空，无法使用".into()
     } else if message.contains("Wrong password") || message.contains("authentication failed") {
         "口令不正确，或文件已经损坏".into()
     } else if message.contains("Not an enc3") || message.contains("Not a BFQ") {
@@ -133,6 +148,11 @@ fn run(cancel_file: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
     let mut request_bytes = Vec::new();
     io::stdin().lock().read_to_end(&mut request_bytes)?;
     let request: Request = serde_json::from_slice(&request_bytes)?;
+    let keyfile = request
+        .keyfile
+        .as_deref()
+        .map(load_keyfile)
+        .transpose()?;
     let prepared = if matches!(request.operation, Operation::Pack) {
         Some(prepare_input(&request.input, request.compress)?)
     } else {
@@ -170,7 +190,7 @@ fn run(cancel_file: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
         }
         Ok(())
     };
-    let result = OperationResult::from(execute(&request, prepared, progress)?);
+    let result = OperationResult::from(execute(&request, keyfile.as_ref(), prepared, progress)?);
     write_event(
         &mut output,
         json!({"type":"result","filename":result.filename,"originalSize":result.original_size,"output":result.output}),
