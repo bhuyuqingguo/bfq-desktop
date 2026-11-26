@@ -883,7 +883,7 @@ mod win7ui {
         });
     }
 
-    fn main() {
+    pub fn main() {
         unsafe {
             let instance = GetModuleHandleW(ptr::null());
             let class_name = wide(CLASS_NAME);
