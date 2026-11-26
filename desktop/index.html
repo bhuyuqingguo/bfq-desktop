@@ -159,6 +159,14 @@
                 <label for="confirm-password">再次输入口令</label>
                 <input id="confirm-password" type="password" autocomplete="off" spellcheck="false" placeholder="再次输入以确认" />
               </div>
+              <div id="keyfile-group">
+                <label for="keyfile">密钥文件 <small>可选，为封装再加一重保护</small></label>
+                <div class="password-input">
+                  <input id="keyfile" type="text" autocomplete="off" spellcheck="false" placeholder="不使用密钥文件" readonly />
+                  <button id="choose-keyfile" type="button">选择 ↗</button>
+                  <button id="clear-keyfile" type="button">清除</button>
+                </div>
+              </div>
               <div id="strength-meter" class="strength-meter"><div><span>口令强度</span><strong id="strength-label">等待输入</strong></div><div class="strength-track"><i id="strength-fill"></i></div><small>建议使用 14 位以上、包含不同字符的口令</small></div>
               <div class="password-tools">
                 <button id="generate-password" class="text-button" type="button">生成随机口令</button>

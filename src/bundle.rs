@@ -131,6 +131,7 @@ pub fn encrypt_prepared_monitored<F: FnMut(u64) -> io::Result<()>>(
     prepared: PreparedInput,
     input: &Path,
     password: &str,
+    keyfile: Option<&[u8; 32]>,
     output: Option<&Path>,
     rename_existing: bool,
     on_progress: F,
@@ -142,7 +143,7 @@ pub fn encrypt_prepared_monitored<F: FnMut(u64) -> io::Result<()>>(
     let stream_size = prepared.stream_size();
     let reader = MonitoredReader::new(File::open(&prepared.path)?, on_progress);
     atomic_write(&output, |file| {
-        encrypt(reader, file, password, &prepared.filename, stream_size)
+        encrypt(reader, file, password, keyfile, &prepared.filename, stream_size)
     })?;
     Ok(FileInfo {
         filename: prepared.filename,
@@ -154,6 +155,7 @@ pub fn encrypt_prepared_monitored<F: FnMut(u64) -> io::Result<()>>(
 pub fn encrypt_path_monitored<F: FnMut(u64) -> io::Result<()>>(
     input: &Path,
     password: &str,
+    keyfile: Option<&[u8; 32]>,
     output: Option<&Path>,
     compress: bool,
     rename_existing: bool,
@@ -164,6 +166,7 @@ pub fn encrypt_path_monitored<F: FnMut(u64) -> io::Result<()>>(
         prepared,
         input,
         password,
+        keyfile,
         output,
         rename_existing,
         on_progress,
@@ -282,21 +285,22 @@ fn restore_zip_bundle(
 pub fn decrypt_path_monitored<F: FnMut(u64) -> io::Result<()>>(
     archive_path: &Path,
     password: &str,
+    keyfile: Option<&[u8; 32]>,
     output: Option<&Path>,
     rename_existing: bool,
     on_progress: F,
 ) -> Result<FileInfo> {
-    let info = inspect_file(archive_path, password)?;
+    let info = inspect_file(archive_path, password, keyfile)?;
     if !info.filename.to_ascii_lowercase().ends_with(".zip") {
         let output = choose_output(
             output.unwrap_or(&archive_path.with_file_name(&info.filename)),
             rename_existing,
         )?;
-        return decrypt_file_monitored(archive_path, password, Some(&output), on_progress);
+        return decrypt_file_monitored(archive_path, password, keyfile, Some(&output), on_progress);
     }
     let mut temporary = NamedTempFile::new()?;
     let reader = MonitoredReader::new(File::open(archive_path)?, on_progress);
-    decrypt(reader, &mut temporary.as_file_mut(), password)?;
+    decrypt(reader, &mut temporary.as_file_mut(), password, keyfile)?;
     restore_zip_bundle(&mut temporary, archive_path, output, rename_existing, &info)
 }
 
@@ -312,18 +316,18 @@ mod tests {
         fs::write(source.join("说明.txt"), b"hello folder").unwrap();
         fs::create_dir(source.join("空目录")).unwrap();
         let archive = root.path().join("资料.bfq");
-        encrypt_path_monitored(&source, "password", Some(&archive), true, false, |_| Ok(()))
+        encrypt_path_monitored(&source, "password", None, Some(&archive), true, false, |_| Ok(()))
             .unwrap();
         fs::remove_dir_all(&source).unwrap();
         let restored =
-            decrypt_path_monitored(&archive, "password", None, false, |_| Ok(())).unwrap();
+            decrypt_path_monitored(&archive, "password", None, None, false, |_| Ok(())).unwrap();
         assert_eq!(restored.output, root.path().join("资料"));
         assert_eq!(
             fs::read(restored.output.join("说明.txt")).unwrap(),
             b"hello folder"
         );
         assert!(restored.output.join("空目录").is_dir());
-        let renamed = decrypt_path_monitored(&archive, "password", None, true, |_| Ok(())).unwrap();
+        let renamed = decrypt_path_monitored(&archive, "password", None, None, true, |_| Ok(())).unwrap();
         assert_eq!(renamed.output, root.path().join("资料-1"));
     }
 
@@ -333,12 +337,12 @@ mod tests {
         let source = root.path().join("重复.txt");
         fs::write(&source, vec![42; 100_000]).unwrap();
         let archive = root.path().join("压缩.bfq");
-        encrypt_path_monitored(&source, "password", Some(&archive), true, false, |_| Ok(()))
+        encrypt_path_monitored(&source, "password", None, Some(&archive), true, false, |_| Ok(()))
             .unwrap();
         assert!(archive.metadata().unwrap().len() < source.metadata().unwrap().len());
         fs::remove_file(&source).unwrap();
         let restored =
-            decrypt_path_monitored(&archive, "password", None, false, |_| Ok(())).unwrap();
+            decrypt_path_monitored(&archive, "password", None, None, false, |_| Ok(())).unwrap();
         assert_eq!(restored.filename, "重复.txt");
         assert_eq!(fs::read(restored.output).unwrap(), vec![42; 100_000]);
     }
@@ -358,6 +362,7 @@ mod tests {
         encrypt_path_monitored(
             &source,
             "password",
+            None,
             Some(&archive),
             false,
             false,
@@ -366,8 +371,87 @@ mod tests {
         .unwrap();
         fs::remove_file(&source).unwrap();
         let restored =
-            decrypt_path_monitored(&archive, "password", None, false, |_| Ok(())).unwrap();
+            decrypt_path_monitored(&archive, "password", None, None, false, |_| Ok(())).unwrap();
         assert_eq!(restored.output, source);
         assert_eq!(fs::read(restored.output).unwrap(), original);
+    }
+
+    #[test]
+    fn keyfile_roundtrip_and_requirement() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("密钥.txt");
+        fs::write(&source, b"keyfile protected content").unwrap();
+        let keyfile = root.path().join("我的密钥文件.bin");
+        fs::write(&keyfile, b"any ordinary file works as a key").unwrap();
+        let other_keyfile = root.path().join("别的密钥.bin");
+        fs::write(&other_keyfile, b"a different key").unwrap();
+        let digest = crate::modern::load_keyfile(&keyfile).unwrap();
+        let archive = root.path().join("密钥.bfq");
+        encrypt_path_monitored(
+            &source,
+            "password",
+            Some(&digest),
+            Some(&archive),
+            false,
+            false,
+            |_| Ok(()),
+        )
+        .unwrap();
+        fs::remove_file(&source).unwrap();
+
+        // Missing key file is rejected with a dedicated message.
+        let missing = decrypt_path_monitored(&archive, "password", None, None, false, |_| Ok(()));
+        assert!(missing.is_err());
+        assert!(missing.err().unwrap().to_string().contains("key file"));
+
+        // Wrong key file fails authentication.
+        let wrong = crate::modern::load_keyfile(&other_keyfile).unwrap();
+        let failed =
+            decrypt_path_monitored(&archive, "password", Some(&wrong), None, false, |_| Ok(()));
+        assert!(failed.is_err());
+
+        // Correct password + key file restores the content.
+        let restored = decrypt_path_monitored(
+            &archive,
+            "password",
+            Some(&digest),
+            None,
+            false,
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(fs::read(restored.output).unwrap(), b"keyfile protected content");
+
+        // Key file given for a non-keyfile archive is rejected early.
+        let plain = root.path().join("普通.txt");
+        fs::write(&plain, b"plain").unwrap();
+        let plain_archive = root.path().join("普通.bfq");
+        encrypt_path_monitored(
+            &plain,
+            "password",
+            None,
+            Some(&plain_archive),
+            false,
+            false,
+            |_| Ok(()),
+        )
+        .unwrap();
+        let rejected = decrypt_path_monitored(
+            &plain_archive,
+            "password",
+            Some(&digest),
+            None,
+            false,
+            |_| Ok(()),
+        );
+        assert!(rejected.is_err());
+    }
+
+    #[test]
+    fn empty_keyfile_is_rejected() {
+        let root = tempfile::tempdir().unwrap();
+        let keyfile = root.path().join("空.bin");
+        fs::write(&keyfile, b"").unwrap();
+        assert!(crate::modern::load_keyfile(&keyfile).is_err());
     }
 }

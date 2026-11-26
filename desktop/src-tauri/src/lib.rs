@@ -1,9 +1,9 @@
 use en3_recovery::bundle::{decrypt_path_monitored, encrypt_prepared_monitored, prepare_input};
-use en3_recovery::modern::{choose_output, migrate_en3_monitored, verify_file_monitored};
+use en3_recovery::modern::{choose_output, load_keyfile, migrate_en3_monitored, verify_file_monitored};
 use en3_recovery::recover_file_monitored;
 use serde::{Deserialize, Serialize};
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -29,6 +29,7 @@ struct OperationRequest {
     password: String,
     new_password: Option<String>,
     output: Option<String>,
+    keyfile: Option<String>,
     #[serde(default)]
     compress: bool,
     #[serde(default)]
@@ -64,6 +65,12 @@ fn map_error(error: impl std::fmt::Display) -> String {
     let message = error.to_string();
     if message.contains("Operation cancelled") {
         "操作已取消，未生成输出文件".into()
+    } else if message.contains("requires a key file") {
+        "此封装需要使用密钥文件，请选择密钥文件".into()
+    } else if message.contains("without a key file") {
+        "此封装未使用密钥文件，请留空密钥文件".into()
+    } else if message.contains("Key file is empty") {
+        "密钥文件为空，无法使用".into()
     } else {
         message
     }
@@ -79,8 +86,17 @@ async fn execute_operation(
     let guard = begin(&state)?;
     let cancelled = Arc::clone(&state.cancelled);
     let output = output_path(request.output.as_deref());
+    let keyfile = request
+        .keyfile
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .map(Path::new)
+        .map(load_keyfile)
+        .transpose()
+        .map_err(map_error)?;
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
+        let digest = keyfile.as_deref();
         let prepared = if request.operation == "pack" {
             Some(prepare_input(&input, request.compress).map_err(map_error)?)
         } else {
@@ -125,6 +141,7 @@ async fn execute_operation(
                 prepared.expect("prepared pack input"),
                 &input,
                 &request.password,
+                digest,
                 output.as_deref(),
                 request.rename_existing,
                 progress,
@@ -132,11 +149,12 @@ async fn execute_operation(
             "unpack" => decrypt_path_monitored(
                 &input,
                 &request.password,
+                digest,
                 output.as_deref(),
                 request.rename_existing,
                 progress,
             ),
-            "verify" => verify_file_monitored(&input, &request.password, progress),
+            "verify" => verify_file_monitored(&input, &request.password, digest, progress),
             "recover" => {
                 recover_file_monitored(&input, &request.password, output.as_deref(), progress).map(
                     |info| en3_recovery::modern::FileInfo {
@@ -158,6 +176,7 @@ async fn execute_operation(
                     &input,
                     &request.password,
                     new_password,
+                    digest,
                     Some(&destination),
                     progress,
                 )

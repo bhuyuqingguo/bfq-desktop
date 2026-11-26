@@ -4,7 +4,7 @@
 mod win7ui {
 
     use en3_recovery::bundle::{decrypt_path_monitored, encrypt_prepared_monitored, prepare_input};
-    use en3_recovery::modern::{choose_output, verify_file_monitored};
+    use en3_recovery::modern::{choose_output, load_keyfile, verify_file_monitored};
     use en3_recovery::recover_file_monitored;
     use std::ffi::OsString;
     use std::io;
@@ -46,6 +46,8 @@ mod win7ui {
     const IDC_OP_UNPACK: i32 = 115;
     const IDC_OP_VERIFY: i32 = 116;
     const IDC_OP_RECOVER: i32 = 117;
+    const IDC_KEYFILE: i32 = 118;
+    const IDC_KEYFILE_BROWSE: i32 = 119;
     const BST_CHECKED_U: UINT = BST_CHECKED as UINT;
 
     #[derive(Clone, Copy, PartialEq, Eq)]
@@ -67,6 +69,7 @@ mod win7ui {
         output: HWND,
         password: HWND,
         confirm: HWND,
+        keyfile: HWND,
         compress: HWND,
         rename: HWND,
         progress: HWND,
@@ -348,12 +351,45 @@ mod win7ui {
             window,
             IDC_CONFIRM,
         );
+        create_window(
+            "STATIC",
+            "密钥文件（可选，为封装再加一重保护）",
+            WS_CHILD | WS_VISIBLE,
+            20,
+            332,
+            620,
+            16,
+            window,
+            0,
+        );
+        let keyfile = create_window(
+            "EDIT",
+            "",
+            WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL,
+            20,
+            349,
+            560,
+            24,
+            window,
+            IDC_KEYFILE,
+        );
+        let keyfile_browse = create_window(
+            "BUTTON",
+            "浏览",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
+            590,
+            348,
+            70,
+            26,
+            window,
+            IDC_KEYFILE_BROWSE,
+        );
         let compress = create_window(
             "BUTTON",
             "封装时压缩",
             WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
             20,
-            337,
+            381,
             130,
             22,
             window,
@@ -364,7 +400,7 @@ mod win7ui {
             "重名时自动改名",
             WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
             170,
-            337,
+            381,
             170,
             22,
             window,
@@ -375,7 +411,7 @@ mod win7ui {
             "",
             WS_CHILD | WS_VISIBLE,
             20,
-            371,
+            411,
             620,
             20,
             window,
@@ -386,7 +422,7 @@ mod win7ui {
             "请选择输入，输入口令后开始。",
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_READONLY | WS_VSCROLL,
             20,
-            403,
+            439,
             620,
             62,
             window,
@@ -397,7 +433,7 @@ mod win7ui {
             "开始",
             WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
             468,
-            478,
+            511,
             78,
             30,
             window,
@@ -408,7 +444,7 @@ mod win7ui {
             "取消",
             WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
             562,
-            478,
+            511,
             78,
             30,
             window,
@@ -428,6 +464,8 @@ mod win7ui {
             output_browse,
             password,
             confirm,
+            keyfile,
+            keyfile_browse,
             compress,
             rename,
             progress,
@@ -451,6 +489,7 @@ mod win7ui {
             output,
             password,
             confirm,
+            keyfile,
             compress,
             rename,
             progress,
@@ -491,6 +530,7 @@ mod win7ui {
                     match id {
                         IDC_INPUT_FILE => pick_input_file(app),
                         IDC_OUTPUT_BROWSE => pick_output_file(app),
+                        IDC_KEYFILE_BROWSE => pick_keyfile(app),
                         IDC_OP_PACK | IDC_OP_UNPACK | IDC_OP_VERIFY | IDC_OP_RECOVER => {
                             CheckDlgButton(
                                 window,
@@ -619,6 +659,13 @@ mod win7ui {
         }
     }
 
+    fn pick_keyfile(app: &App) {
+        let filter = wide("密钥文件 (*.*)\0*\0\0");
+        if let Some(path) = open_dialog(ptr::null_mut(), "选择密钥文件", &filter, true) {
+            set_text(app.keyfile, &path.to_string_lossy());
+        }
+    }
+
     fn open_dialog(
         owner: HWND,
         title: &str,
@@ -707,6 +754,12 @@ mod win7ui {
             "输出文件已存在。为避免覆盖，本次操作已停止。".to_string()
         } else if message.contains("Wrong password") || message.contains("authentication failed") {
             "口令不正确，或文件已损坏。".to_string()
+        } else if message.contains("requires a key file") {
+            "此封装需要使用密钥文件，请在密钥文件栏选择。".to_string()
+        } else if message.contains("without a key file") {
+            "此封装未使用密钥文件，请留空密钥文件栏。".to_string()
+        } else if message.contains("Key file is empty") {
+            "密钥文件为空文件，无法使用。".to_string()
         } else if message.contains("Not an enc3 archive") {
             "这不是可识别的旧版 EN3 文件。".to_string()
         } else if message.contains("Input must be a file or folder") {
@@ -721,6 +774,7 @@ mod win7ui {
         input: PathBuf,
         output: Option<PathBuf>,
         password: String,
+        keyfile: Option<PathBuf>,
         compress: bool,
         rename_existing: bool,
         shared: Arc<Mutex<SharedState>>,
@@ -741,6 +795,12 @@ mod win7ui {
             Ok(())
         };
 
+        let digest = keyfile
+            .as_deref()
+            .map(load_keyfile)
+            .transpose()
+            .map_err(error_text)?;
+
         match operation {
             Operation::Pack => {
                 let prepared = prepare_input(&input, compress).map_err(error_text)?;
@@ -748,6 +808,7 @@ mod win7ui {
                     prepared,
                     &input,
                     &password,
+                    digest.as_deref(),
                     output.as_deref(),
                     rename_existing,
                     make_progress,
@@ -763,6 +824,7 @@ mod win7ui {
                 let info = decrypt_path_monitored(
                     &input,
                     &password,
+                    digest.as_deref(),
                     output.as_deref(),
                     rename_existing,
                     make_progress,
@@ -775,8 +837,8 @@ mod win7ui {
                 ))
             }
             Operation::Verify => {
-                let info =
-                    verify_file_monitored(&input, &password, make_progress).map_err(error_text)?;
+                let info = verify_file_monitored(&input, &password, digest.as_deref(), make_progress)
+                    .map_err(error_text)?;
                 Ok(format!(
                     "校验通过：{}（{} 字节）",
                     info.filename, info.original_size
@@ -811,6 +873,12 @@ mod win7ui {
         };
         let password = get_text(app.password);
         let confirm = get_text(app.confirm);
+        let keyfile_text = get_text(app.keyfile);
+        let keyfile = if keyfile_text.trim().is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(keyfile_text))
+        };
         if !input.is_file() && !input.is_dir() {
             unsafe {
                 MessageBoxW(
@@ -871,6 +939,7 @@ mod win7ui {
                 input,
                 output,
                 password,
+                keyfile,
                 compress,
                 rename_existing,
                 Arc::clone(&shared),
@@ -913,7 +982,7 @@ mod win7ui {
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 680,
-                565,
+                605,
                 ptr::null_mut(),
                 ptr::null_mut(),
                 instance,

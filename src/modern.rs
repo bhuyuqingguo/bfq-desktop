@@ -10,15 +10,17 @@ use super::{
 use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes256Gcm, KeyInit};
 use argon2::{Algorithm, Argon2, Params, Version};
+use sm3::{Digest, Sm3};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 const MAGIC: &[u8; 8] = b"BFQPK01\0";
 const FORMAT_VERSION: u16 = 1;
 const KDF_ARGON2ID: u8 = 1;
 const CIPHER_AES256GCM: u8 = 1;
+const KEYFILE_FLAG: u16 = 0x01;
 const FIXED_HEADER_SIZE: usize = 68;
 const RECORD_HEADER_SIZE: usize = 13;
 const TAG_SIZE: usize = 16;
@@ -53,6 +55,7 @@ fn derive_key(
     memory_kib: u32,
     iterations: u32,
     lanes: u32,
+    keyfile: Option<&[u8; 32]>,
 ) -> Result<Zeroizing<[u8; 32]>> {
     if password.is_empty() || password.len() > 1024 {
         return Err(En3Error::Format(
@@ -68,10 +71,44 @@ fn derive_key(
         .map_err(|error| En3Error::Format(format!("Invalid Argon2id parameters: {error}")))?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     let mut key = Zeroizing::new([0_u8; 32]);
-    argon2
-        .hash_password_into(password.as_bytes(), salt, &mut *key)
-        .map_err(|error| En3Error::Format(format!("Argon2id key derivation failed: {error}")))?;
+    if let Some(digest) = keyfile {
+        let mut hasher = Sm3::new();
+        hasher.update(salt);
+        hasher.update(digest);
+        let mixed: [u8; 32] = hasher.finalize().into();
+        argon2
+            .hash_password_into(password.as_bytes(), &mixed, &mut *key)
+            .map_err(|error| En3Error::Format(format!("Key derivation failed: {error}")))?;
+    } else {
+        argon2
+            .hash_password_into(password.as_bytes(), salt, &mut *key)
+            .map_err(|error| En3Error::Format(format!("Key derivation failed: {error}")))?;
+    }
     Ok(key)
+}
+
+/// Hash a key file into fixed-size key material. Any ordinary file works;
+/// the file content itself is never stored, only its digest participates in
+/// key derivation. Empty files are rejected.
+pub fn load_keyfile(path: &Path) -> Result<Zeroizing<[u8; 32]>> {
+    let mut file = File::open(path)?;
+    let mut hasher = Sm3::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut total = 0_u64;
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        total = total.saturating_add(count as u64);
+        hasher.update(&buffer[..count]);
+    }
+    let mut buffer = Zeroizing::new(buffer);
+    buffer.zeroize();
+    if total == 0 {
+        return Err(En3Error::Format("Key file is empty".into()));
+    }
+    Ok(Zeroizing::new(hasher.finalize().into()))
 }
 
 fn chunk_nonce(base_nonce: &[u8; NONCE_SIZE], index: u64) -> [u8; NONCE_SIZE] {
@@ -109,7 +146,13 @@ struct ModernEncoder<W: Write> {
 }
 
 impl<W: Write> ModernEncoder<W> {
-    fn new(mut writer: W, password: &str, filename: &str, original_size: u64) -> Result<Self> {
+    fn new(
+        mut writer: W,
+        password: &str,
+        keyfile: Option<&[u8; 32]>,
+        filename: &str,
+        original_size: u64,
+    ) -> Result<Self> {
         let safe_name = safe_basename(filename)?;
         if safe_name != filename {
             return Err(En3Error::Format(
@@ -133,6 +176,7 @@ impl<W: Write> ModernEncoder<W> {
             ARGON_MEMORY_KIB,
             ARGON_ITERATIONS,
             ARGON_LANES,
+            keyfile,
         )?;
         let cipher = Aes256Gcm::new_from_slice(&*key)
             .map_err(|_| En3Error::Format("Internal AES-256 key error".into()))?;
@@ -146,7 +190,8 @@ impl<W: Write> ModernEncoder<W> {
         fixed_header.extend_from_slice(&(CHUNK_SIZE as u32).to_le_bytes());
         fixed_header.extend_from_slice(&original_size.to_le_bytes());
         fixed_header.extend_from_slice(&encrypted_filename_size.to_le_bytes());
-        fixed_header.extend_from_slice(&0_u16.to_le_bytes());
+        let flags = if keyfile.is_some() { KEYFILE_FLAG } else { 0 };
+        fixed_header.extend_from_slice(&flags.to_le_bytes());
         fixed_header.extend_from_slice(&salt);
         fixed_header.extend_from_slice(&base_nonce);
         fixed_header.extend_from_slice(&ARGON_MEMORY_KIB.to_le_bytes());
@@ -284,7 +329,7 @@ struct ModernDecoder<R: Read> {
 }
 
 impl<R: Read> ModernDecoder<R> {
-    fn new(mut reader: R, password: &str) -> Result<Self> {
+    fn new(mut reader: R, password: &str, keyfile: Option<&[u8; 32]>) -> Result<Self> {
         let mut fixed = [0_u8; FIXED_HEADER_SIZE];
         read_exact_context(&mut reader, &mut fixed, "Truncated BFQ header")?;
         if &fixed[..8] != MAGIC {
@@ -309,15 +354,30 @@ impl<R: Read> ModernDecoder<R> {
         if !(TAG_SIZE..=MAX_FILENAME_SIZE + TAG_SIZE).contains(&filename_size) {
             return Err(En3Error::Format("Invalid BFQ filename length".into()));
         }
-        if fixed[26..28] != [0, 0] {
+        let flags = u16::from_le_bytes(fixed[26..28].try_into().expect("flags"));
+        if flags & !KEYFILE_FLAG != 0 {
             return Err(En3Error::Format("Unsupported BFQ header flags".into()));
+        }
+        let needs_keyfile = flags & KEYFILE_FLAG != 0;
+        match (needs_keyfile, keyfile.is_some()) {
+            (true, false) => {
+                return Err(En3Error::Format(
+                    "This archive requires a key file (key file missing)".into(),
+                ));
+            }
+            (false, true) => {
+                return Err(En3Error::Format(
+                    "This archive was created without a key file".into(),
+                ));
+            }
+            _ => {}
         }
         let salt: [u8; SALT_SIZE] = fixed[28..44].try_into().expect("salt");
         let base_nonce: [u8; NONCE_SIZE] = fixed[44..56].try_into().expect("nonce");
         let memory_kib = u32::from_le_bytes(fixed[56..60].try_into().expect("memory cost"));
         let iterations = u32::from_le_bytes(fixed[60..64].try_into().expect("time cost"));
         let lanes = u32::from_le_bytes(fixed[64..68].try_into().expect("lanes"));
-        let key = derive_key(password, &salt, memory_kib, iterations, lanes)?;
+        let key = derive_key(password, &salt, memory_kib, iterations, lanes, keyfile)?;
         let cipher = Aes256Gcm::new_from_slice(&*key)
             .map_err(|_| En3Error::Format("Internal AES-256 key error".into()))?;
 
@@ -430,10 +490,11 @@ pub fn encrypt<R: Read, W: Write>(
     mut reader: R,
     writer: W,
     password: &str,
+    keyfile: Option<&[u8; 32]>,
     filename: &str,
     original_size: u64,
 ) -> Result<StreamInfo> {
-    let mut encoder = ModernEncoder::new(writer, password, filename, original_size)?;
+    let mut encoder = ModernEncoder::new(writer, password, keyfile, filename, original_size)?;
     io::copy(&mut reader, &mut encoder)?;
     encoder.finish()?;
     Ok(StreamInfo {
@@ -443,8 +504,13 @@ pub fn encrypt<R: Read, W: Write>(
 }
 
 /// Decrypt and authenticate a BFQ stream incrementally.
-pub fn decrypt<R: Read, W: Write>(reader: R, writer: &mut W, password: &str) -> Result<StreamInfo> {
-    ModernDecoder::new(reader, password)?.decode_to(writer)
+pub fn decrypt<R: Read, W: Write>(
+    reader: R,
+    writer: &mut W,
+    password: &str,
+    keyfile: Option<&[u8; 32]>,
+) -> Result<StreamInfo> {
+    ModernDecoder::new(reader, password, keyfile)?.decode_to(writer)
 }
 
 /// Resolve an output collision without ever replacing an existing file.
@@ -476,8 +542,12 @@ pub fn choose_output(output: &Path, rename_existing: bool) -> Result<PathBuf> {
     ))
 }
 
-pub fn inspect_file(archive: &Path, password: &str) -> Result<StreamInfo> {
-    let decoder = ModernDecoder::new(File::open(archive)?, password)?;
+pub fn inspect_file(
+    archive: &Path,
+    password: &str,
+    keyfile: Option<&[u8; 32]>,
+) -> Result<StreamInfo> {
+    let decoder = ModernDecoder::new(File::open(archive)?, password, keyfile)?;
     Ok(StreamInfo {
         filename: decoder.filename,
         original_size: decoder.original_size,
@@ -487,10 +557,11 @@ pub fn inspect_file(archive: &Path, password: &str) -> Result<StreamInfo> {
 pub fn verify_file_monitored<F: FnMut(u64) -> io::Result<()>>(
     archive: &Path,
     password: &str,
+    keyfile: Option<&[u8; 32]>,
     on_progress: F,
 ) -> Result<FileInfo> {
     let reader = MonitoredReader::new(File::open(archive)?, on_progress);
-    let info = decrypt(reader, &mut io::sink(), password)?;
+    let info = decrypt(reader, &mut io::sink(), password, keyfile)?;
     Ok(FileInfo {
         filename: info.filename,
         original_size: info.original_size,
@@ -498,13 +569,19 @@ pub fn verify_file_monitored<F: FnMut(u64) -> io::Result<()>>(
     })
 }
 
-pub fn encrypt_file(input: &Path, password: &str, output: Option<&Path>) -> Result<FileInfo> {
-    encrypt_file_monitored(input, password, output, |_| Ok(()))
+pub fn encrypt_file(
+    input: &Path,
+    password: &str,
+    keyfile: Option<&[u8; 32]>,
+    output: Option<&Path>,
+) -> Result<FileInfo> {
+    encrypt_file_monitored(input, password, keyfile, output, |_| Ok(()))
 }
 
 pub fn encrypt_file_monitored<F: FnMut(u64) -> io::Result<()>>(
     input: &Path,
     password: &str,
+    keyfile: Option<&[u8; 32]>,
     output: Option<&Path>,
     on_progress: F,
 ) -> Result<FileInfo> {
@@ -519,7 +596,7 @@ pub fn encrypt_file_monitored<F: FnMut(u64) -> io::Result<()>>(
         .unwrap_or_else(|| input.with_extension(BFQ_EXTENSION));
     let reader = MonitoredReader::new(File::open(input)?, on_progress);
     atomic_write(&output, |file| {
-        encrypt(reader, file, password, &filename, original_size)
+        encrypt(reader, file, password, keyfile, &filename, original_size)
     })?;
     Ok(FileInfo {
         filename,
@@ -528,18 +605,24 @@ pub fn encrypt_file_monitored<F: FnMut(u64) -> io::Result<()>>(
     })
 }
 
-pub fn decrypt_file(archive: &Path, password: &str, output: Option<&Path>) -> Result<FileInfo> {
-    decrypt_file_monitored(archive, password, output, |_| Ok(()))
+pub fn decrypt_file(
+    archive: &Path,
+    password: &str,
+    keyfile: Option<&[u8; 32]>,
+    output: Option<&Path>,
+) -> Result<FileInfo> {
+    decrypt_file_monitored(archive, password, keyfile, output, |_| Ok(()))
 }
 
 pub fn decrypt_file_monitored<F: FnMut(u64) -> io::Result<()>>(
     archive: &Path,
     password: &str,
+    keyfile: Option<&[u8; 32]>,
     output: Option<&Path>,
     on_progress: F,
 ) -> Result<FileInfo> {
     let reader = MonitoredReader::new(File::open(archive)?, on_progress);
-    let decoder = ModernDecoder::new(reader, password)?;
+    let decoder = ModernDecoder::new(reader, password, keyfile)?;
     let output = output
         .map(Path::to_path_buf)
         .unwrap_or_else(|| archive.with_file_name(decoder.filename.clone()));
@@ -558,15 +641,17 @@ pub fn migrate_en3(
     archive: &Path,
     old_password: &str,
     new_password: &str,
+    keyfile: Option<&[u8; 32]>,
     output: Option<&Path>,
 ) -> Result<FileInfo> {
-    migrate_en3_monitored(archive, old_password, new_password, output, |_| Ok(()))
+    migrate_en3_monitored(archive, old_password, new_password, keyfile, output, |_| Ok(()))
 }
 
 pub fn migrate_en3_monitored<F: FnMut(u64) -> io::Result<()>>(
     archive: &Path,
     old_password: &str,
     new_password: &str,
+    keyfile: Option<&[u8; 32]>,
     output: Option<&Path>,
     on_progress: F,
 ) -> Result<FileInfo> {
@@ -578,7 +663,7 @@ pub fn migrate_en3_monitored<F: FnMut(u64) -> io::Result<()>>(
         .map(Path::to_path_buf)
         .unwrap_or_else(|| archive.with_extension(BFQ_EXTENSION));
     atomic_write(&output, |file| {
-        let mut encoder = ModernEncoder::new(file, new_password, &filename, original_size)?;
+        let mut encoder = ModernEncoder::new(file, new_password, keyfile, &filename, original_size)?;
         decoder.decode_to(&mut encoder)?;
         encoder.finish()
     })?;
