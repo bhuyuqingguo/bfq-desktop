@@ -8,7 +8,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tauri::{Emitter, WebviewWindow};
-use zeroize::Zeroizing;
 
 #[derive(Default)]
 struct AppState {
