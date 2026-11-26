@@ -24,7 +24,7 @@ fn monitored_encryption_reports_all_input_bytes() {
     let data = vec![42_u8; 100_000];
     fs::write(&input, &data).unwrap();
     let mut last = 0;
-    encrypt_file_monitored(&input, "password", Some(&archive), |processed| {
+    encrypt_file_monitored(&input, "password", None, Some(&archive), |processed| {
         last = processed;
         Ok(())
     })
@@ -40,7 +40,7 @@ fn cancellation_removes_partial_output() {
     let archive = directory.join("archive.bfq");
     let recovered = directory.join("recovered.bin");
     fs::write(&input, vec![42_u8; 100_000]).unwrap();
-    let error = encrypt_file_monitored(&input, "password", Some(&archive), |processed| {
+    let error = encrypt_file_monitored(&input, "password", None, Some(&archive), |processed| {
         if processed >= 65_536 {
             Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"))
         } else {
@@ -51,8 +51,8 @@ fn cancellation_removes_partial_output() {
     assert!(error.to_string().contains("cancelled"));
     assert!(!archive.exists());
 
-    encrypt_file_monitored(&input, "password", Some(&archive), |_| Ok(())).unwrap();
-    let error = decrypt_file_monitored(&archive, "password", Some(&recovered), |_| {
+    encrypt_file_monitored(&input, "password", None, Some(&archive), |_| Ok(())).unwrap();
+    let error = decrypt_file_monitored(&archive, "password", None, Some(&recovered), |_| {
         Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"))
     })
     .unwrap_err();

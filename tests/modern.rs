@@ -16,6 +16,7 @@ fn encrypt_bytes(data: &[u8], password: &str) -> Vec<u8> {
         Cursor::new(data),
         &mut archive,
         password,
+        None,
         "secret-name.bin",
         data.len() as u64,
     )
@@ -25,7 +26,7 @@ fn encrypt_bytes(data: &[u8], password: &str) -> Vec<u8> {
 
 fn decrypt_bytes(archive: &[u8], password: &str) -> Result<(String, Vec<u8>), String> {
     let mut plaintext = Vec::new();
-    let info = decrypt(Cursor::new(archive), &mut plaintext, password)
+    let info = decrypt(Cursor::new(archive), &mut plaintext, password, None)
         .map_err(|error| error.to_string())?;
     Ok((info.filename, plaintext))
 }
@@ -141,6 +142,7 @@ fn fragmented_input_and_archive_reads_are_supported() {
         reader,
         &mut archive,
         "password",
+        None,
         "secret-name.bin",
         expected.len() as u64,
     )
@@ -151,7 +153,7 @@ fn fragmented_input_and_archive_reads_are_supported() {
         position: 0,
     };
     let mut plaintext = Vec::new();
-    decrypt(reader, &mut plaintext, "password").unwrap();
+    decrypt(reader, &mut plaintext, "password", None).unwrap();
     assert_eq!(plaintext, expected);
 }
 
@@ -176,10 +178,11 @@ fn en3_migrates_directly_to_authenticated_bfq() {
         PathBuf::from("tests/fixtures/multiblock_plaintext.en3").as_path(),
         "要U夕生和出大发8出的",
         "new-strong-password",
+        None,
         Some(&archive),
     )
     .unwrap();
-    decrypt_file(&archive, "new-strong-password", Some(&recovered)).unwrap();
+    decrypt_file(&archive, "new-strong-password", None, Some(&recovered)).unwrap();
     assert_eq!(
         fs::read(&recovered).unwrap(),
         fs::read("tests/fixtures/multiblock_plaintext.bin").unwrap()
@@ -193,7 +196,7 @@ fn failed_file_decryption_leaves_no_output() {
     let archive = directory.join("sample.bfq");
     let recovered = directory.join("recovered.bin");
     fs::write(&archive, encrypt_bytes(&test_data(4096), "right-password")).unwrap();
-    assert!(decrypt_file(&archive, "wrong-password", Some(&recovered)).is_err());
+    assert!(decrypt_file(&archive, "wrong-password", None, Some(&recovered)).is_err());
     assert!(!recovered.exists());
     assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
     fs::remove_dir_all(directory).unwrap();
