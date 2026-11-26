@@ -18,9 +18,9 @@ mod win7ui {
     use winapi::shared::minwindef::*;
     use winapi::shared::windef::{HBRUSH, HDC, HGDIOBJ, HMENU, HWND};
     use winapi::um::commctrl::{PBM_SETPOS, PBM_SETRANGE32};
-    use winapi::um::shellapi::HDROP;
     use winapi::um::commdlg::*;
     use winapi::um::libloaderapi::GetModuleHandleW;
+    use winapi::um::shellapi::HDROP;
     use winapi::um::shellapi::*;
     use winapi::um::wingdi::{CreateSolidBrush, DeleteObject, RGB, SetBkMode, TRANSPARENT};
     use winapi::um::winuser::*;
@@ -80,7 +80,9 @@ mod win7ui {
 
     impl App {
         fn lock(&self) -> MutexGuard<'_, SharedState> {
-            self.shared.lock().unwrap_or_else(|error| error.into_inner())
+            self.shared
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
         }
 
         fn set_running(&self, running: bool) {
@@ -96,12 +98,20 @@ mod win7ui {
     }
 
     fn wide_path(path: &Path) -> Vec<u16> {
-        path.as_os_str().encode_wide().chain(std::iter::once(0)).collect()
+        path.as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
     }
 
     fn from_wide(value: &[u16]) -> String {
-        let end = value.iter().position(|character| *character == 0).unwrap_or(value.len());
-        OsString::from_wide(&value[..end]).to_string_lossy().into_owned()
+        let end = value
+            .iter()
+            .position(|character| *character == 0)
+            .unwrap_or(value.len());
+        OsString::from_wide(&value[..end])
+            .to_string_lossy()
+            .into_owned()
     }
 
     fn get_text(window: HWND) -> String {
@@ -173,7 +183,17 @@ mod win7ui {
             window,
             0,
         );
-        create_window("BUTTON", "操作", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 20, 68, 620, 58, window, 0);
+        create_window(
+            "BUTTON",
+            "操作",
+            WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+            20,
+            68,
+            620,
+            58,
+            window,
+            0,
+        );
         let op_pack = create_window(
             "BUTTON",
             "封装文件/文件夹",
@@ -218,7 +238,17 @@ mod win7ui {
             window,
             IDC_OP_RECOVER,
         );
-        create_window("STATIC", "输入", WS_CHILD | WS_VISIBLE, 20, 134, 560, 18, window, 0);
+        create_window(
+            "STATIC",
+            "输入",
+            WS_CHILD | WS_VISIBLE,
+            20,
+            134,
+            560,
+            18,
+            window,
+            0,
+        );
         let input = create_window(
             "EDIT",
             "",
@@ -274,7 +304,17 @@ mod win7ui {
             window,
             IDC_OUTPUT_BROWSE,
         );
-        create_window("STATIC", "口令", WS_CHILD | WS_VISIBLE, 20, 276, 120, 18, window, 0);
+        create_window(
+            "STATIC",
+            "口令",
+            WS_CHILD | WS_VISIBLE,
+            20,
+            276,
+            120,
+            18,
+            window,
+            0,
+        );
         let password = create_window(
             "EDIT",
             "",
@@ -286,7 +326,17 @@ mod win7ui {
             window,
             IDC_PASSWORD,
         );
-        create_window("STATIC", "确认口令（仅封装）", WS_CHILD | WS_VISIBLE, 350, 276, 220, 18, window, 0);
+        create_window(
+            "STATIC",
+            "确认口令（仅封装）",
+            WS_CHILD | WS_VISIBLE,
+            350,
+            276,
+            220,
+            18,
+            window,
+            0,
+        );
         let confirm = create_window(
             "EDIT",
             "",
@@ -442,10 +492,38 @@ mod win7ui {
                         IDC_INPUT_FILE => pick_input_file(app),
                         IDC_OUTPUT_BROWSE => pick_output_file(app),
                         IDC_OP_PACK | IDC_OP_UNPACK | IDC_OP_VERIFY | IDC_OP_RECOVER => {
-                            CheckDlgButton(window, IDC_OP_PACK, if id == IDC_OP_PACK { BST_CHECKED_U } else { 0 });
-                            CheckDlgButton(window, IDC_OP_UNPACK, if id == IDC_OP_UNPACK { BST_CHECKED_U } else { 0 });
-                            CheckDlgButton(window, IDC_OP_VERIFY, if id == IDC_OP_VERIFY { BST_CHECKED_U } else { 0 });
-                            CheckDlgButton(window, IDC_OP_RECOVER, if id == IDC_OP_RECOVER { BST_CHECKED_U } else { 0 });
+                            CheckDlgButton(
+                                window,
+                                IDC_OP_PACK,
+                                if id == IDC_OP_PACK { BST_CHECKED_U } else { 0 },
+                            );
+                            CheckDlgButton(
+                                window,
+                                IDC_OP_UNPACK,
+                                if id == IDC_OP_UNPACK {
+                                    BST_CHECKED_U
+                                } else {
+                                    0
+                                },
+                            );
+                            CheckDlgButton(
+                                window,
+                                IDC_OP_VERIFY,
+                                if id == IDC_OP_VERIFY {
+                                    BST_CHECKED_U
+                                } else {
+                                    0
+                                },
+                            );
+                            CheckDlgButton(
+                                window,
+                                IDC_OP_RECOVER,
+                                if id == IDC_OP_RECOVER {
+                                    BST_CHECKED_U
+                                } else {
+                                    0
+                                },
+                            );
                         }
                         IDC_START => start_operation(window, app),
                         IDC_CANCEL => {
@@ -472,7 +550,12 @@ mod win7ui {
                         }
                         Err(message) => {
                             set_text(app.status, &message);
-                            MessageBoxW(window, wide(&message).as_ptr(), wide("观海·八分").as_ptr(), MB_OK | MB_ICONERROR);
+                            MessageBoxW(
+                                window,
+                                wide(&message).as_ptr(),
+                                wide("观海·八分").as_ptr(),
+                                MB_OK | MB_ICONERROR,
+                            );
                         }
                     }
                 }
@@ -536,7 +619,12 @@ mod win7ui {
         }
     }
 
-    fn open_dialog(owner: HWND, title: &str, filter: &[u16], file_must_exist: bool) -> Option<PathBuf> {
+    fn open_dialog(
+        owner: HWND,
+        title: &str,
+        filter: &[u16],
+        file_must_exist: bool,
+    ) -> Option<PathBuf> {
         let title = wide(title);
         let mut buffer = vec![0_u16; MAX_PATH_LEN];
         let mut options = OPENFILENAMEW {
@@ -687,16 +775,21 @@ mod win7ui {
                 ))
             }
             Operation::Verify => {
-                let info = verify_file_monitored(&input, &password, make_progress).map_err(error_text)?;
-                Ok(format!("校验通过：{}（{} 字节）", info.filename, info.original_size))
+                let info =
+                    verify_file_monitored(&input, &password, make_progress).map_err(error_text)?;
+                Ok(format!(
+                    "校验通过：{}（{} 字节）",
+                    info.filename, info.original_size
+                ))
             }
             Operation::Recover => {
                 let requested = match output {
                     Some(path) => Some(choose_output(&path, rename_existing).map_err(error_text)?),
                     None => None,
                 };
-                let info = recover_file_monitored(&input, &password, requested.as_deref(), make_progress)
-                    .map_err(error_text)?;
+                let info =
+                    recover_file_monitored(&input, &password, requested.as_deref(), make_progress)
+                        .map_err(error_text)?;
                 Ok(format!(
                     "旧版文件恢复完成：{}（原始大小 {} 字节）",
                     info.output.display(),
@@ -721,33 +814,33 @@ mod win7ui {
         if !input.is_file() && !input.is_dir() {
             unsafe {
                 MessageBoxW(
-                window,
-                wide("请选择存在的文件或文件夹。").as_ptr(),
-                wide("观海·八分").as_ptr(),
-                MB_OK | MB_ICONERROR,
-            );
+                    window,
+                    wide("请选择存在的文件或文件夹。").as_ptr(),
+                    wide("观海·八分").as_ptr(),
+                    MB_OK | MB_ICONERROR,
+                );
             }
             return;
         }
         if password.is_empty() {
             unsafe {
                 MessageBoxW(
-                window,
-                wide("请输入口令。").as_ptr(),
-                wide("观海·八分").as_ptr(),
-                MB_OK | MB_ICONERROR,
-            );
+                    window,
+                    wide("请输入口令。").as_ptr(),
+                    wide("观海·八分").as_ptr(),
+                    MB_OK | MB_ICONERROR,
+                );
             }
             return;
         }
         if operation == Operation::Pack && password != confirm {
             unsafe {
                 MessageBoxW(
-                window,
-                wide("两次输入的口令不一致。").as_ptr(),
-                wide("观海·八分").as_ptr(),
-                MB_OK | MB_ICONERROR,
-            );
+                    window,
+                    wide("两次输入的口令不一致。").as_ptr(),
+                    wide("观海·八分").as_ptr(),
+                    MB_OK | MB_ICONERROR,
+                );
             }
             return;
         }
@@ -838,7 +931,6 @@ mod win7ui {
             }
         }
     }
-
 }
 
 #[cfg(windows)]
