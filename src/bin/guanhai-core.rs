@@ -67,7 +67,7 @@ fn execute(
     progress: impl FnMut(u64) -> io::Result<()>,
 ) -> en3_recovery::Result<FileInfo> {
     let output = request.output.as_deref();
-    let digest = keyfile.as_deref();
+    let digest = keyfile.as_ref().map(|value| &**value);
     match request.operation {
         Operation::Pack => encrypt_prepared_monitored(
             prepared
